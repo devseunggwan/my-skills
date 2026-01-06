@@ -1,0 +1,17 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Planning files (user-specific)
+task_plan.md
+notes.md
+research_notes.md
+
+# Logs & temp
+*.log
+tmp/
