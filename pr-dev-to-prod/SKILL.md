@@ -42,7 +42,9 @@ git fetch origin
 git log origin/prod..origin/dev --oneline
 ```
 
-3. 각 커밋에서 PR 번호 추출 (커밋 메시지에서 `(#XXXX)` 패턴)
+3. 각 커밋에서 PR 번호 추출:
+   - Squash merge: `feat(scope): description (#1234)` → `#1234`
+   - Merge commit: `Merge pull request #1234` → `#1234`
 
 4. 각 PR의 상세 정보 조회 (병렬 실행):
 ```bash
@@ -167,6 +169,29 @@ Generated with [Claude Code](https://claude.ai/code)
 2. **참고 PR 형식을 최대한 따름**
 3. **영향도 정보가 PR body에 없으면 "확인 필요"로 표시**
 4. **Breaking change가 있으면 반드시 강조**
+
+## Edge Cases
+
+### 커밋 차이가 없는 경우
+
+```bash
+git log origin/prod..origin/dev --oneline
+```
+
+결과가 비어있으면 사용자에게 알림:
+> "dev와 prod 브랜치 사이에 배포할 변경사항이 없습니다."
+
+### PR 정보를 찾을 수 없는 경우
+
+커밋에서 PR 번호를 추출할 수 없거나 `gh pr view`가 실패하면:
+- 해당 커밋은 "직접 커밋"으로 표시
+- 커밋 메시지와 변경 파일 정보를 대신 사용
+
+### 참고 PR과 형식이 다른 경우
+
+참고 PR의 형식을 파싱할 수 없으면:
+- 기본 템플릿 사용
+- 사용자에게 형식 차이 알림
 
 ## Example Usage
 
