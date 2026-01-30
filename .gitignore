@@ -15,3 +15,6 @@ research_notes.md
 # Logs & temp
 *.log
 tmp/
+
+# Documentation (local only)
+docs/
