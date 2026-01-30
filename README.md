@@ -6,6 +6,9 @@ Personal collection of Claude Code skills.
 
 | Skill | Description |
 |-------|-------------|
+| install-claude-stack | Claude Code 플러그인 스택 설치 (superpowers + oh-my-claudecode + context7 + serena) |
+| context-recovery | 사이드 태스크 완료 후 원래 작업으로 복귀 |
+| pr-dev-to-prod | dev → prod 릴리스 PR 자동 생성 |
 | create-issue | GitHub 이슈 생성 템플릿 |
 | create-pr | GitHub PR 생성 템플릿 |
 | python-style | Python 코딩 스타일 가이드 |
