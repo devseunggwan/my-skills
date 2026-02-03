@@ -227,10 +227,26 @@ If reference PR format cannot be parsed:
 
 ## Example Usage
 
+### With reference PR (existing behavior)
+```
+User: Create dev to prod PR, reference: https://github.com/org/repo/pull/6700
+Assistant: [Analyzes reference PR, checks commit diff, and presents PR body preview]
+```
+
+### Without reference PR (auto-reference)
 ```
 User: Create dev to prod PR
-Assistant: Please provide a reference release PR link.
+Assistant: Searching for recent release PR...
+         Found release PR #6700 (release: Production Deploy 2024-01-15).
+         Use this as reference? (Y/n)
 
-User: https://github.com/org/repo/pull/6700
-Assistant: [Analyzes reference PR, checks commit diff, and presents PR body preview]
+User: Y
+Assistant: [Analyzes reference PR #6700, checks commit diff, and presents PR body preview]
+```
+
+### No release PR found
+```
+User: Create dev to prod PR
+Assistant: No recent release PR found matching criteria.
+         Please provide a reference PR link. (e.g., https://github.com/org/repo/pull/123)
 ```
