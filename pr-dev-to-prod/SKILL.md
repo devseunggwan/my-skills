@@ -213,6 +213,18 @@ If reference PR format cannot be parsed:
 - Use default template
 - Notify user about format difference
 
+### Auto-reference edge cases
+
+#### Multiple release PRs with same date
+- Use the most recently merged one (first in list)
+
+#### Release PR format differs significantly
+- Warn user: "Recent PR #XXX format differs from standard template. Proceed anyway? (Y/n)"
+- If declined, request manual reference PR link
+
+#### No merged PRs to prod branch
+- Notify user: "No PRs have been merged to prod branch yet. Please provide a reference PR link or use default template."
+
 ## Example Usage
 
 ```
