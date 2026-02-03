@@ -9,10 +9,10 @@ Automatically creates a PR to release changes from dev branch to prod.
 
 ## Prerequisites
 
-**Reference PR link required** - Creates PR in the same format as the previous release PR.
+**Reference PR** - Creates PR in the same format as the previous release PR.
 
-If the user does not provide a reference PR, you must request it:
-> "Please provide a reference release PR link. (e.g., https://github.com/org/repo/pull/123)"
+- If provided: Use directly
+- If not provided: Auto-search for recent release PR merged to prod branch
 
 ## When to Use
 
@@ -24,8 +24,28 @@ If the user does not provide a reference PR, you must request it:
 
 ### Phase 0: Validate Required Inputs
 
-1. **Check reference PR link** - Request if not provided
-2. Analyze reference PR format:
+1. **Check reference PR link**
+   - If provided: Use it directly
+   - If not provided: Auto-search for recent release PR
+
+2. **Auto-search logic** (when reference not provided):
+```bash
+# Step 1: Search with release label (highest priority)
+gh pr list --base prod --state merged --label release --limit 1 --json number,title
+
+# Step 2: If not found, search by title pattern
+gh pr list --base prod --state merged --limit 10 --json number,title | \
+  jq '[.[] | select(.title | test("^release:|Production Deploy"))] | .[0]'
+
+# Step 3: If still not found, get most recent merged PR to prod
+gh pr list --base prod --state merged --limit 1 --json number,title
+```
+
+3. **Confirm with user**:
+   - If found: "Found recent release PR #XXX as reference. Use this? (Y/n)"
+   - If not found: "No recent release PR found. Please provide a reference PR link."
+
+4. Analyze reference PR format:
 ```bash
 gh pr view <reference_PR_number> --json title,body
 ```
