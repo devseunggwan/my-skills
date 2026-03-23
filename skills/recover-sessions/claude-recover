@@ -18,6 +18,7 @@ set -euo pipefail
 DAYS_AGO=""
 FROM_DATE=""
 TO_DATE=""
+LAYOUT="1x2"  # CxR: columns x rows per tmux session
 MODE="create"  # create | list | attach | windows
 
 while [[ $# -gt 0 ]]; do
@@ -25,17 +26,19 @@ while [[ $# -gt 0 ]]; do
     --days)    DAYS_AGO="$2"; shift 2 ;;
     --from)    FROM_DATE="$2"; shift 2 ;;
     --to)      TO_DATE="$2"; shift 2 ;;
+    --layout)  LAYOUT="$2"; shift 2 ;;
     --list)    MODE="list"; shift ;;
     --attach)  MODE="attach"; shift ;;
     --windows) MODE="windows"; shift ;;
     -h|--help)
       cat << 'HELP'
-Usage: claude-recover [--days N | --from DATE --to DATE] [--list|--attach|--windows]
+Usage: claude-recover [--days N | --from DATE --to DATE] [--layout CxR] [--list|--attach|--windows]
 
 Options:
   --days N        최근 N일 내 세션 스캔 (기본: 1)
   --from DATE     시작일 (YYYY-MM-DD or MM-DD)
   --to DATE       종료일 (YYYY-MM-DD or MM-DD, 기본: 어제)
+  --layout CxR    tmux 레이아웃 (가로x세로, 기본: 1x2)
   --list          복구 대상만 조회 (tmux 생성 안함)
   --attach        tmux 생성 후 첫 번째 세션에 자동 attach
   --windows       ghostty +new-window로 모든 세션 자동 열기
@@ -43,7 +46,14 @@ Options:
 Examples:
   claude-recover --list --days 3                    # 최근 3일
   claude-recover --list --from 03-18 --to 03-20    # 3/18~3/20
-  claude-recover --list --from 2026-03-20           # 3/20~어제
+  claude-recover --from 03-20 --layout 3x2         # 3/20~어제, 탭당 6개
+  claude-recover --from 03-20 --layout 2x2         # 3/20~어제, 탭당 4개
+
+Layout examples:
+  1x2  = 2 panes (상/하, 기본값)
+  2x1  = 2 panes (좌/우)
+  2x2  = 4 panes (2x2 그리드)
+  3x2  = 6 panes (3열 2행 그리드)
 
 복구 후 각 Ghostty 탭에서:
   tmux attach -t cr-1
@@ -265,9 +275,14 @@ echo ""
 
 [[ "$MODE" == "list" ]] && exit 0
 
-# ── Phase 3: tmux 세션 생성 (2개씩 페어링) ──
+# ── Phase 3: tmux 세션 생성 (레이아웃 기반) ──
 
-echo "tmux 세션 생성 중..."
+# Parse layout: CxR
+COLS=${LAYOUT%%x*}
+ROWS=${LAYOUT##*x}
+PANES_PER_TAB=$((COLS * ROWS))
+
+echo "tmux 세션 생성 중... (레이아웃: ${COLS}x${ROWS} = ${PANES_PER_TAB} panes/tab)"
 
 for old in $(tmux ls -F '#{session_name}' 2>/dev/null | grep '^cr-'); do
   tmux kill-session -t "$old" 2>/dev/null || true
@@ -280,19 +295,41 @@ while [[ $i -lt ${#SESSIONS[@]} ]]; do
   tab_num=$((tab_num + 1))
   tmux_name="cr-${tab_num}"
 
-  IFS='|' read -r _ _ sid1 dir1 msg1 <<< "${SESSIONS[$i]}"
+  # First pane: create session
+  IFS='|' read -r _ _ sid1 dir1 _ <<< "${SESSIONS[$i]}"
   tmux new-session -d -s "$tmux_name" -c "$dir1"
   tmux send-keys -t "${tmux_name}:0.0" "claude --resume ${sid1}" Enter
-
   i=$((i + 1))
-  if [[ $i -lt ${#SESSIONS[@]} ]]; then
-    IFS='|' read -r _ _ sid2 dir2 msg2 <<< "${SESSIONS[$i]}"
-    tmux split-window -v -t "${tmux_name}:0" -c "$dir2"
-    tmux send-keys -t "${tmux_name}:0.1" "claude --resume ${sid2}" Enter
-    i=$((i + 1))
-  fi
 
-  echo "  ✓ ${tmux_name} 생성 완료"
+  # Create remaining panes for this tab
+  pane_idx=1
+  while [[ $pane_idx -lt $PANES_PER_TAB && $i -lt ${#SESSIONS[@]} ]]; do
+    IFS='|' read -r _ _ sid dir _ <<< "${SESSIONS[$i]}"
+
+    # Determine split direction based on grid position
+    # Strategy: first create ROWS by splitting vertically,
+    # then split each row horizontally for COLS
+    row=$((pane_idx / COLS))
+    col=$((pane_idx % COLS))
+
+    if [[ $col -eq 0 ]]; then
+      # New row: split vertically from the first pane of previous row
+      prev_row_pane=$(( (row - 1) * COLS ))
+      tmux split-window -v -t "${tmux_name}:0.${prev_row_pane}" -c "$dir"
+    else
+      # Same row: split horizontally from the previous pane
+      tmux split-window -h -t "${tmux_name}:0.$((pane_idx - 1))" -c "$dir"
+    fi
+
+    tmux send-keys -t "${tmux_name}:0.${pane_idx}" "claude --resume ${sid}" Enter
+    pane_idx=$((pane_idx + 1))
+    i=$((i + 1))
+  done
+
+  # Even out pane sizes
+  tmux select-layout -t "${tmux_name}:0" tiled 2>/dev/null || true
+
+  echo "  ✓ ${tmux_name} 생성 완료 (${pane_idx} panes)"
 done
 
 echo ""
