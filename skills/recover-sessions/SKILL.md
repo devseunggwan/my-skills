@@ -1,6 +1,6 @@
 ---
 name: recover-sessions
-description: Bulk recover Claude Code sessions after power loss or tmux crash. Scans recent sessions and distributes them across Ghostty tabs with tmux 2-pane splits. Triggers on "recover", "session recovery", "restore sessions", "power recovery".
+description: Bulk recover Claude Code sessions after power loss or tmux crash. Interactive interview to determine recovery scope, layout, and execution mode. Triggers on "recover", "session recovery", "restore sessions", "power recovery".
 ---
 
 # Recover Sessions
@@ -20,8 +20,8 @@ Bulk recover Claude Code sessions after power loss or tmux server crash.
 
 ## Prerequisites
 
-- `~/.local/bin/claude-recover` script must be installed
-- tmux must be installed (`brew install tmux`)
+- `claude-recover` script in `skills/recover-sessions/claude-recover` (symlinked to `~/.local/bin/`)
+- tmux installed (`brew install tmux`)
 - Ghostty terminal (tab-based workflow)
 
 ## Process
@@ -32,110 +32,191 @@ Bulk recover Claude Code sessions after power loss or tmux server crash.
 which claude-recover || echo "NOT INSTALLED"
 ```
 
-If the script is missing, inform the user:
-
-> `claude-recover` is not installed. Would you like me to install it?
-
-If installation is needed, create the script at `~/.local/bin/claude-recover` and run `chmod +x`.
-
-### Step 2: Scan Recovery Targets
-
-Ask the user for the recovery time range:
-
-```
-How far back should I scan for sessions?
-1. Last 1 day (default)
-2. Last 3 days
-3. Last 7 days
-4. Custom
-```
-
-After selection, run the scan:
+If missing, create symlink:
 
 ```bash
-claude-recover --list --days <N>
+ln -sf ~/projects/my-skills/skills/recover-sessions/claude-recover ~/.local/bin/claude-recover
 ```
 
-Show the output to the user and confirm which sessions to recover.
+### Step 2: Interview — Recovery Scope
 
-### Step 3: Create tmux Sessions
+Ask the user via `AskUserQuestion`:
 
-Once the user confirms recovery:
+**Q1: When did the crash happen?**
+
+```
+When did the power loss / crash occur?
+1. Today (recover sessions from yesterday)
+2. Yesterday
+3. Last Friday (weekend crash)
+4. Custom date range
+```
+
+- Option 1 → `--from <yesterday> --to <yesterday>`
+- Option 2 → `--from <2 days ago> --to <yesterday>`
+- Option 3 → `--from <last Monday> --to <last Friday>`
+- Option 4 → Ask follow-up: "Enter start date (MM-DD or YYYY-MM-DD):" then "Enter end date (leave empty for yesterday):"
+
+### Step 3: Scan and Present Results
+
+Run the scan with determined date range:
 
 ```bash
-claude-recover --days <N>
+claude-recover --list --from <start> --to <end>
 ```
 
-This command:
-1. Scans recent sessions (auto-filters schedule/auto sessions)
-2. Pairs sessions into groups of 2 and creates tmux sessions (`cr-1`, `cr-2`, ...)
-3. Each tmux session: vertical split, top/bottom panes run `claude --resume <session-id>`
+Present the results to the user. If 0 sessions found, suggest widening the range.
 
-### Step 4: Ghostty Tab Distribution Guide
+### Step 4: Interview — Session Selection
 
-After tmux sessions are created, guide the user:
+Ask the user via `AskUserQuestion`:
+
+**Q2: Which sessions to recover?**
+
+```
+Found N sessions. Which ones to recover?
+1. All (recover everything)
+2. Let me review — show me the list and I'll pick
+```
+
+If option 2: Show the numbered list and ask which numbers to include/exclude.
+(Note: current script recovers all filtered sessions. For selective recovery, user can manually run `claude --resume <session-id>` for specific ones.)
+
+### Step 5: Interview — Layout
+
+Ask the user via `AskUserQuestion`:
+
+**Q3: How should sessions be arranged in tmux?**
+
+```
+How many panes per Ghostty tab?
+1. 1x2 — 2 panes (top/bottom, default)
+2. 2x1 — 2 panes (left/right)
+3. 2x2 — 4 panes (2x2 grid)
+4. 3x2 — 6 panes (3 columns, 2 rows)
+5. Custom (enter CxR)
+```
+
+Show calculated tab count: "N sessions ÷ P panes = T tabs"
+
+### Step 6: Interview — Execution Mode
+
+Ask the user via `AskUserQuestion`:
+
+**Q4: How to open the recovered sessions?**
+
+```
+How should the tmux sessions be opened?
+1. Manual — show attach commands, I'll open tabs myself
+2. Auto-attach — attach to first session, show rest
+3. Auto-windows — open all in Ghostty windows automatically
+```
+
+### Step 7: Final Confirmation
+
+Present the recovery plan summary and ask for **explicit approval** before executing:
 
 ```
 ═══════════════════════════════════════════════
- tmux sessions created successfully.
-
- Open a new Ghostty tab (Cmd+T) for each and run:
-
-   tmux a -t cr-1
-   tmux a -t cr-2
-   tmux a -t cr-3
-   ...
-
- Or auto-open Ghostty windows:
-   claude-recover --days <N> --windows
+ Recovery Plan
 ═══════════════════════════════════════════════
+
+ Date range:  03-18 ~ 03-20
+ Sessions:    22 (filtered from 85 total)
+ Layout:      2x2 (4 panes per tab)
+ Tabs needed: 6
+ Mode:        Manual (show attach commands)
+
+ Command to execute:
+   claude-recover --from 03-18 --to 03-20 --layout 2x2
+
+═══════════════════════════════════════════════
+
+Proceed with recovery?
+1. Yes, execute
+2. Change settings
+3. Cancel
 ```
 
-### Step 5: Verify Recovery
+- Option 1 → Execute the command
+- Option 2 → Return to the relevant interview step
+- Option 3 → Abort
 
-Check recovery status:
+### Step 8: Execute Recovery
+
+Run the approved command:
+
+```bash
+claude-recover --from <start> --to <end> --layout <CxR> [--attach|--windows]
+```
+
+### Step 9: Verify and Guide
+
+After execution, verify tmux sessions were created:
 
 ```bash
 tmux ls 2>/dev/null | grep "^cr-"
 ```
 
-## Mode Reference
+Then guide the user on attaching (output depends on the chosen mode).
 
-| Mode | Command | Behavior |
-|------|---------|----------|
-| List | `claude-recover --list --days N` | Show targets only (no tmux creation) |
-| Create | `claude-recover --days N` | Create tmux sessions + show attach instructions |
-| Auto-attach | `claude-recover --days N --attach` | Create + auto-attach to cr-1 |
-| Auto-windows | `claude-recover --days N --windows` | Open all sessions in Ghostty windows |
+## Script Reference
 
-## Session Identification
+### CLI Options
 
-The script identifies sessions using:
+| Option | Description |
+|--------|-------------|
+| `--days N` | Scan last N days |
+| `--from DATE` | Start date (YYYY-MM-DD or MM-DD) |
+| `--to DATE` | End date (default: yesterday) |
+| `--layout CxR` | Grid layout per tab (default: 1x2) |
+| `--list` | List only, don't create tmux sessions |
+| `--attach` | Auto-attach to first session after creation |
+| `--windows` | Open all in Ghostty windows |
 
-- **Path**: Extracts real project path from `progress.cwd` field inside the jsonl
-- **Content**: Shows first user message (`type=user`, `message.content`) to identify session purpose
-- **Filtering**: Auto-excludes sessions <50K and known schedule patterns ("SLA deep analysis", "Collect today", etc.)
-- **Size**: Larger files indicate more conversation = more important sessions
+### Filtering Pipeline
 
-## Prevention: Session Naming Convention
+The script automatically excludes:
+
+| Filter | What it removes |
+|--------|----------------|
+| Subagent paths | `/subagents/` directory sessions |
+| Teammate sessions | `<teammate-message>` (omc team workers) |
+| Team orchestrators | `oh-my-claudecode:team` command sessions |
+| Command-only | Skill auto-invocations with ≤5 user messages |
+| Short sessions | Less than 4 user messages |
+| Schedule/auto | Known prefixes (SLA, daily commit, morning briefing, etc.) |
+| Exited sessions | `/exit` or `/quit` detected in last 15 lines |
+| No content | Sessions with no identifiable user message |
+
+### Layout Examples
+
+```
+1x2 = ┌───┐    2x2 = ┌───┬───┐    3x2 = ┌───┬───┬───┐
+      │ 1 │          │ 1 │ 2 │          │ 1 │ 2 │ 3 │
+      ├───┤          ├───┼───┤          ├───┼───┼───┤
+      │ 2 │          │ 3 │ 4 │          │ 4 │ 5 │ 6 │
+      └───┘          └───┴───┘          └───┴───┴───┘
+```
+
+## Prevention: Session Naming
 
 Prevention beats recovery. Always name sessions at startup:
 
 ```bash
 claude --name "hub-700-feat-xyz"
-claude --name "dag-v3-kakao-moment"
 ```
 
-Named sessions can be instantly recovered with `claude --resume "hub-700"` (fuzzy match).
+Named sessions recover instantly: `claude --resume "hub-700"` (fuzzy match).
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "No sessions to recover" | No sessions in time range | Increase `--days` value |
-| tmux session creation fails | tmux not running | Verify tmux is installed |
-| Session starts in wrong directory | cwd extraction failed | Check progress.cwd in jsonl file |
-| Ghostty windows don't open | Ghostty not running | Launch Ghostty first, then use `--windows` |
+| "No sessions to recover" | No sessions in range | Widen `--from`/`--to` range |
+| tmux creation fails | tmux not installed | `brew install tmux` |
+| Wrong directory | cwd extraction failed | Check progress.cwd in jsonl |
+| Ghostty windows don't open | Ghostty not running | Launch Ghostty first |
 
 ## Integration
 
