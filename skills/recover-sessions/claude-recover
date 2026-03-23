@@ -309,8 +309,22 @@ TMUX_SESSION="cr"
 
 echo "Creating tmux session '${TMUX_SESSION}'... (layout: ${COLS}x${ROWS} = ${PANES_PER_WIN} panes/window)"
 
-# Clean up existing recovery session
-tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+# Check for existing recovery session — never kill active sessions
+if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+  ATTACHED=$(tmux list-clients -t "$TMUX_SESSION" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$ATTACHED" -gt 0 ]]; then
+    echo "⚠️  Session '${TMUX_SESSION}' exists and has ${ATTACHED} attached client(s)."
+    echo "   Cannot overwrite an active session."
+    echo ""
+    echo "Options:"
+    echo "  1. Detach/close the existing session first"
+    echo "  2. Kill it manually: tmux kill-session -t ${TMUX_SESSION}"
+    exit 1
+  else
+    echo "Removing detached session '${TMUX_SESSION}'..."
+    tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+  fi
+fi
 
 # Helper: build resume command based on config home
 build_resume_cmd() {
