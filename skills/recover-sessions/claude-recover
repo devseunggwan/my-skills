@@ -290,7 +290,7 @@ printf "%-4s %-12s %-5s %-8s %-34s %s\n" "---" "----------" "----" "------" "---
 for i in "${!SESSIONS[@]}"; do
   IFS='|' read -r mod_time size session_id project_dir first_msg home_label <<< "${SESSIONS[$i]}"
   idx=$((i + 1))
-  short_project=$(echo "$project_dir" | sed 's|/Users/nathan.song/projects/||' | cut -c1-32)
+  short_project=$(echo "$project_dir" | sed "s|$HOME/projects/||; s|$HOME/||" | cut -c1-32)
   short_msg=$(echo "$first_msg" | cut -c1-45)
   printf "%-4s %-12s %-5s %-8s %-34s %s\n" "$idx" "$mod_time" "$size" "$home_label" "$short_project" "$short_msg"
 done
@@ -318,7 +318,8 @@ build_resume_cmd() {
   if [[ "$home" == "claude" ]]; then
     echo "claude --resume ${sid}"
   else
-    echo "claude-${home} --resume ${sid}"
+    # Use CLAUDE_CONFIG_DIR for non-default config homes (portable)
+    echo "CLAUDE_CONFIG_DIR=\$HOME/.claude-${home} claude --resume ${sid}"
   fi
 }
 
@@ -361,8 +362,14 @@ while [[ $i -lt ${#SESSIONS[@]} ]]; do
     i=$((i + 1))
   done
 
-  # Even out pane sizes
-  tmux select-layout -t "${TMUX_SESSION}:${win_num}" tiled 2>/dev/null || true
+  # Apply correct layout based on grid dimensions
+  if [[ $COLS -eq 1 ]]; then
+    tmux select-layout -t "${TMUX_SESSION}:${win_num}" even-vertical 2>/dev/null || true
+  elif [[ $ROWS -eq 1 ]]; then
+    tmux select-layout -t "${TMUX_SESSION}:${win_num}" even-horizontal 2>/dev/null || true
+  else
+    tmux select-layout -t "${TMUX_SESSION}:${win_num}" tiled 2>/dev/null || true
+  fi
 
   echo "  ✓ window ${win_num} created (${pane_idx} panes)"
   win_num=$((win_num + 1))
@@ -380,10 +387,39 @@ echo ""
 # ── Phase 4: Attach or show instructions ──
 
 if [[ "$MODE" == "windows" ]]; then
-  echo "Opening Ghostty window..."
-  open -na Ghostty.app --args -e tmux attach -t "$TMUX_SESSION"
+  # Detect terminal app and open accordingly
+  TERM_APP=""
+  if [[ "$TERM_PROGRAM" == "ghostty" ]] || pgrep -q Ghostty 2>/dev/null; then
+    TERM_APP="Ghostty"
+  elif [[ "$TERM_PROGRAM" == "iTerm.app" ]] || pgrep -q iTerm2 2>/dev/null; then
+    TERM_APP="iTerm"
+  elif [[ "$TERM_PROGRAM" == "Apple_Terminal" ]]; then
+    TERM_APP="Terminal"
+  fi
+
+  case "$TERM_APP" in
+    Ghostty)
+      echo "Opening Ghostty window..."
+      open -na Ghostty.app --args -e tmux attach -t "$TMUX_SESSION"
+      ;;
+    iTerm)
+      echo "Opening iTerm2 window..."
+      open -na iTerm.app --args -e tmux attach -t "$TMUX_SESSION"
+      ;;
+    Terminal)
+      echo "Opening Terminal window..."
+      open -na Terminal.app --args -e tmux attach -t "$TMUX_SESSION"
+      ;;
+    *)
+      echo "⚠️  Could not detect terminal app. Attach manually:"
+      echo "  tmux a -t ${TMUX_SESSION}"
+      ;;
+  esac
+
   sleep 1
-  echo "✅ Ghostty window opened with ${win_num} tmux windows"
+  if [[ -n "$TERM_APP" ]]; then
+    echo "✅ ${TERM_APP} window opened with ${win_num} tmux windows"
+  fi
   echo ""
   echo "Navigate: Ctrl+B n (next) / Ctrl+B p (prev) / Ctrl+B 0-$((win_num-1)) (by number)"
 
@@ -403,6 +439,6 @@ else
   echo "  Ctrl+B p     previous window"
   echo "  Ctrl+B 0-$((win_num-1))   jump to window by number"
   echo ""
-  echo "Or open in new Ghostty window: claude-recover --windows"
+  echo "Or open in new terminal window: claude-recover --windows"
   echo "Or auto-attach: claude-recover --attach"
 fi
