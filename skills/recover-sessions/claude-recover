@@ -1,17 +1,17 @@
 #!/bin/bash
-# claude-recover: Claude Code 세션 일괄 복구 스크립트
+# claude-recover: Bulk recover Claude Code sessions into tmux panes
 #
-# 워크플로우:
-#   1. 최근 세션을 스캔하여 tmux 세션 생성 (세로 2분할, 세션 2개씩 배치)
-#   2. Ghostty에서 탭마다 tmux attach 실행
+# Workflow:
+#   1. Scan recent sessions and create tmux sessions with grid layout
+#   2. Attach via Ghostty tabs (one tab per tmux session)
 #
-# 사용법:
-#   claude-recover                                # 최근 1일 내 수동 세션 복구
-#   claude-recover --days 3                       # 최근 3일
-#   claude-recover --from 03-18 --to 03-20        # 날짜 범위
-#   claude-recover --list                         # 복구 대상만 조회
-#   claude-recover --attach                       # tmux 생성 후 첫 번째에 attach
-#   claude-recover --windows                      # Ghostty 윈도우로 자동 열기 (macOS: open -na)
+# Usage:
+#   claude-recover                                # Last 1 day (default)
+#   claude-recover --days 3                       # Last 3 days
+#   claude-recover --from 03-18 --to 03-20        # Date range
+#   claude-recover --list                         # List only (no tmux creation)
+#   claude-recover --attach                       # Create + auto-attach to first
+#   claude-recover --windows                      # Open all in Ghostty tabs (macOS)
 
 set -euo pipefail
 
@@ -35,27 +35,27 @@ while [[ $# -gt 0 ]]; do
 Usage: claude-recover [--days N | --from DATE --to DATE] [--layout CxR] [--list|--attach|--windows]
 
 Options:
-  --days N        최근 N일 내 세션 스캔 (기본: 1)
-  --from DATE     시작일 (YYYY-MM-DD or MM-DD)
-  --to DATE       종료일 (YYYY-MM-DD or MM-DD, 기본: 어제)
-  --layout CxR    tmux 레이아웃 (가로x세로, 기본: 1x2)
-  --list          복구 대상만 조회 (tmux 생성 안함)
-  --attach        tmux 생성 후 첫 번째 세션에 자동 attach
-  --windows       ghostty +new-window로 모든 세션 자동 열기
+  --days N        Scan last N days (default: 1)
+  --from DATE     Start date (YYYY-MM-DD or MM-DD)
+  --to DATE       End date (YYYY-MM-DD or MM-DD, default: yesterday)
+  --layout CxR    tmux pane grid layout (cols x rows, default: 1x2)
+  --list          List recovery targets only (no tmux creation)
+  --attach        Create tmux sessions + auto-attach to first
+  --windows       Open all sessions in Ghostty tabs (macOS)
 
 Examples:
-  claude-recover --list --days 3                    # 최근 3일
-  claude-recover --list --from 03-18 --to 03-20    # 3/18~3/20
-  claude-recover --from 03-20 --layout 3x2         # 3/20~어제, 탭당 6개
-  claude-recover --from 03-20 --layout 2x2         # 3/20~어제, 탭당 4개
+  claude-recover --list --days 3                    # Last 3 days
+  claude-recover --list --from 03-18 --to 03-20    # Mar 18-20
+  claude-recover --from 03-20 --layout 3x2         # 3/20~yesterday, 6 panes/tab
+  claude-recover --from 03-20 --layout 2x2         # 3/20~yesterday, 4 panes/tab
 
 Layout examples:
-  1x2  = 2 panes (상/하, 기본값)
-  2x1  = 2 panes (좌/우)
-  2x2  = 4 panes (2x2 그리드)
-  3x2  = 6 panes (3열 2행 그리드)
+  1x2  = 2 panes (top/bottom, default)
+  2x1  = 2 panes (left/right)
+  2x2  = 4 panes (2x2 grid)
+  3x2  = 6 panes (3 cols, 2 rows)
 
-복구 후 각 Ghostty 탭에서:
+After recovery, in each Ghostty tab:
   tmux attach -t cr-1
   tmux attach -t cr-2
   ...
@@ -71,7 +71,7 @@ if [[ -z "$DAYS_AGO" && -z "$FROM_DATE" ]]; then
   DAYS_AGO=1
 fi
 
-# ── Phase 1: 세션 스캔 (Python으로 통합 처리) ──
+# ── Phase 1: Scan sessions (Python) ──
 
 SCAN_OUTPUT=$(python3 - "${DAYS_AGO:-}" "${FROM_DATE:-}" "${TO_DATE:-}" << 'PYSCAN'
 import json, os, sys, datetime
@@ -266,21 +266,21 @@ while IFS='|' read -r mod_time size session_id project_dir first_msg home_label;
 done <<< "$SCAN_OUTPUT"
 
 if [[ ${#SESSIONS[@]} -eq 0 ]]; then
-  echo "복구할 세션이 없습니다."
+  echo "No sessions to recover."
   if [[ -n "$FROM_DATE" ]]; then
-    echo "범위: ${FROM_DATE} ~ ${TO_DATE:-어제}"
+    echo "Range: ${FROM_DATE} ~ ${TO_DATE:-yesterday}"
   else
-    echo "범위: 최근 ${DAYS_AGO}일"
+    echo "Range: last ${DAYS_AGO} day(s)"
   fi
-  echo "더 넓은 범위: claude-recover --days 3"
+  echo "Try wider range: claude-recover --days 3"
   exit 0
 fi
 
-# ── Phase 2: 세션 목록 출력 ──
+# ── Phase 2: Display session list ──
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  Claude Code Session Recovery — ${#SESSIONS[@]}개 세션 발견"
+echo "║  Claude Code Session Recovery — ${#SESSIONS[@]} sessions found"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -299,14 +299,14 @@ echo ""
 
 [[ "$MODE" == "list" ]] && exit 0
 
-# ── Phase 3: tmux 세션 생성 (레이아웃 기반) ──
+# ── Phase 3: Create tmux sessions (grid layout) ──
 
 # Parse layout: CxR
 COLS=${LAYOUT%%x*}
 ROWS=${LAYOUT##*x}
 PANES_PER_TAB=$((COLS * ROWS))
 
-echo "tmux 세션 생성 중... (레이아웃: ${COLS}x${ROWS} = ${PANES_PER_TAB} panes/tab)"
+echo "Creating tmux sessions... (layout: ${COLS}x${ROWS} = ${PANES_PER_TAB} panes/tab)"
 
 for old in $(tmux ls -F '#{session_name}' 2>/dev/null | grep '^cr-'); do
   tmux kill-session -t "$old" 2>/dev/null || true
@@ -364,36 +364,36 @@ while [[ $i -lt ${#SESSIONS[@]} ]]; do
   # Even out pane sizes
   tmux select-layout -t "${tmux_name}:0" tiled 2>/dev/null || true
 
-  echo "  ✓ ${tmux_name} 생성 완료 (${pane_idx} panes)"
+  echo "  ✓ ${tmux_name} created (${pane_idx} panes)"
 done
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo " 총 ${tab_num}개 tmux 세션 생성 완료"
+echo " ${tab_num} tmux sessions created"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-# ── Phase 4: 복구 방법 안내 또는 자동 실행 ──
+# ── Phase 4: Open sessions or show instructions ──
 
 if [[ "$MODE" == "windows" ]]; then
   # Check macOS tab preference (needs Ghostty restart after setting)
   TAB_MODE=$(defaults read -g AppleWindowTabbingMode 2>/dev/null)
   if [[ "$TAB_MODE" != "always" ]]; then
-    echo "⚠️  macOS 탭 설정이 'always'가 아닙니다. 새 윈도우로 열립니다."
-    echo "   탭으로 합치려면: defaults write -g AppleWindowTabbingMode -string always"
-    echo "   설정 후 Ghostty 재시작 필요"
+    echo "⚠️  macOS tab preference is not 'always'. Sessions will open as separate windows."
+    echo "   To merge into tabs: defaults write -g AppleWindowTabbingMode -string always"
+    echo "   Requires Ghostty restart after setting."
     echo ""
   fi
 
-  echo "Ghostty 탭 열기..."
+  echo "Opening Ghostty tabs..."
   for n in $(seq 1 "$tab_num"); do
     open -na Ghostty.app --args -e tmux attach -t "cr-${n}"
     sleep 0.5
   done
-  echo "✅ ${tab_num}개 Ghostty 탭 열림"
+  echo "✅ ${tab_num} Ghostty tabs opened"
 
 elif [[ "$MODE" == "attach" ]]; then
-  echo "첫 번째 세션에 attach합니다. 나머지는 새 Ghostty 탭(Cmd+T)에서:"
+  echo "Attaching to first session. Open new Ghostty tabs (Cmd+T) for the rest:"
   echo ""
   for n in $(seq 2 "$tab_num"); do
     echo "  tmux a -t cr-${n}"
@@ -402,12 +402,12 @@ elif [[ "$MODE" == "attach" ]]; then
   exec tmux attach -t "cr-1"
 
 else
-  echo "각 Ghostty 탭(Cmd+T)에서 다음을 실행하세요:"
+  echo "Open a new Ghostty tab (Cmd+T) for each and run:"
   echo ""
   for n in $(seq 1 "$tab_num"); do
     echo "  tmux a -t cr-${n}"
   done
   echo ""
-  echo "또는 한 번에 윈도우로 열기: claude-recover --windows"
-  echo "또는 첫 번째에 바로 attach: claude-recover --attach"
+  echo "Or open all at once: claude-recover --windows"
+  echo "Or auto-attach to first: claude-recover --attach"
 fi
