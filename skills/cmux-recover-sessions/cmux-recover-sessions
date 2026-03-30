@@ -11,6 +11,7 @@
 #   cmux-recover-sessions --from 03-18 --to 03-20        # Date range
 #   cmux-recover-sessions --list                         # List only
 #   cmux-recover-sessions --split 1x2                    # 2 sessions per workspace
+#   cmux-recover-sessions --plain                         # Output resume commands only
 #   cmux-recover-sessions --rename                       # Auto-rename workspaces
 
 set -euo pipefail
@@ -18,7 +19,7 @@ set -euo pipefail
 DAYS_AGO=""
 FROM_DATE=""
 TO_DATE=""
-MODE="tabs"       # tabs | list | split
+MODE="tabs"       # tabs | list | split | plain
 SPLIT_LAYOUT=""   # CxR for split mode
 RENAME=false
 
@@ -29,11 +30,12 @@ while [[ $# -gt 0 ]]; do
     --to)      TO_DATE="$2"; shift 2 ;;
     --tabs)    MODE="tabs"; shift ;;
     --split)   MODE="split"; SPLIT_LAYOUT="$2"; shift 2 ;;
+    --plain)   MODE="plain"; shift ;;
     --list)    MODE="list"; shift ;;
     --rename)  RENAME=true; shift ;;
     -h|--help)
       cat << 'HELP'
-Usage: cmux-recover-sessions [--days N | --from DATE --to DATE] [--tabs|--split CxR] [--list] [--rename]
+Usage: cmux-recover-sessions [--days N | --from DATE --to DATE] [--tabs|--split CxR|--plain] [--list] [--rename]
 
 Options:
   --days N        Scan last N days (default: 1)
@@ -41,6 +43,7 @@ Options:
   --to DATE       End date (YYYY-MM-DD or MM-DD, default: yesterday)
   --tabs          1 session per workspace tab (default)
   --split CxR     CxR grid per workspace (e.g., 1x2, 2x2)
+  --plain         Output resume commands only (no workspace creation)
   --list          List recovery targets only
   --rename        Auto-rename workspaces with session info
 
@@ -49,6 +52,7 @@ Examples:
   cmux-recover-sessions --from 03-23 --to 03-25
   cmux-recover-sessions --from 03-25 --split 1x2
   cmux-recover-sessions --from 03-25 --tabs --rename
+  cmux-recover-sessions --from 03-25 --plain
 HELP
       exit 0
       ;;
@@ -63,7 +67,7 @@ fi
 
 # ── Pre-flight: verify cmux is reachable ──
 
-if [[ "$MODE" != "list" ]]; then
+if [[ "$MODE" != "list" && "$MODE" != "plain" ]]; then
   if ! cmux ping >/dev/null 2>&1; then
     echo "❌ cmux is not reachable. Start cmux app first."
     echo "   Run: open -a cmux"
@@ -71,11 +75,15 @@ if [[ "$MODE" != "list" ]]; then
   fi
 fi
 
-# ── Phase 1: Scan sessions (Python — shared logic with claude-recover) ──
-
 # ── Phase 1: Scan sessions (shared module) ──
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REAL_PATH="$0"
+while [ -L "$REAL_PATH" ]; do
+  LINK_DIR="$(cd "$(dirname "$REAL_PATH")" && pwd)"
+  REAL_PATH="$(readlink "$REAL_PATH")"
+  [[ "$REAL_PATH" != /* ]] && REAL_PATH="$LINK_DIR/$REAL_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$REAL_PATH")" && pwd)"
 SCAN_SCRIPT="${SCRIPT_DIR}/../recover-sessions/claude-recover-scan"
 SCAN_OUTPUT=$(python3 "${SCAN_SCRIPT}" "${DAYS_AGO:-}" "${FROM_DATE:-}" "${TO_DATE:-}")
 
@@ -119,7 +127,7 @@ echo ""
 
 [[ "$MODE" == "list" ]] && exit 0
 
-# ── Phase 3: Create cmux workspaces ──
+# ── Phase 3: Create cmux workspaces / output commands ──
 
 # Helper: build resume command based on config home
 build_resume_cmd() {
@@ -131,12 +139,50 @@ build_resume_cmd() {
   fi
 }
 
-# Helper: extract ref from cmux output ("OK workspace:48" → "workspace:48")
-parse_cmux_ref() {
-  echo "$1" | sed 's/^OK //'
+# Helper: extract workspace ref from cmux output ("OK workspace:48" → "workspace:48")
+parse_ws_ref() {
+  echo "$1" | grep -o 'workspace:[0-9]*'
 }
 
-if [[ "$MODE" == "tabs" ]]; then
+# Helper: extract surface ref from cmux output ("OK surface:36 workspace:31" → "surface:36")
+parse_surface_ref() {
+  echo "$1" | grep -o 'surface:[0-9]*'
+}
+
+# Helper: create workspace, send resume command, return workspace ref
+create_and_resume() {
+  local project_dir="$1" resume_cmd="$2"
+  local raw_out ws_ref
+
+  raw_out=$(cmux new-workspace --cwd "$project_dir" 2>/dev/null)
+  ws_ref=$(parse_ws_ref "$raw_out")
+  [[ -z "$ws_ref" ]] && return 1
+
+  sleep 0.3
+  cmux send --workspace "$ws_ref" "$resume_cmd" 2>/dev/null
+  cmux send-key --workspace "$ws_ref" Enter 2>/dev/null
+
+  echo "$ws_ref"
+}
+
+if [[ "$MODE" == "plain" ]]; then
+  # ── Plain mode: output resume commands only ──
+
+  echo "Resume commands (copy & run manually):"
+  echo ""
+
+  for i in "${!SESSIONS[@]}"; do
+    IFS='|' read -r mod_time size session_id project_dir first_msg home_label <<< "${SESSIONS[$i]}"
+    resume_cmd=$(build_resume_cmd "$session_id" "$home_label")
+    short_msg=$(echo "$first_msg" | cut -c1-60)
+
+    echo "# Session $((i + 1)): ${short_msg}"
+    echo "cd \"${project_dir}\""
+    echo "${resume_cmd}"
+    echo ""
+  done
+
+elif [[ "$MODE" == "tabs" ]]; then
   # ── Tabs mode: 1 workspace per session ──
 
   echo "Creating cmux workspaces (1 per session)..."
@@ -147,9 +193,8 @@ if [[ "$MODE" == "tabs" ]]; then
     IFS='|' read -r mod_time size session_id project_dir first_msg home_label <<< "${SESSIONS[$i]}"
     resume_cmd=$(build_resume_cmd "$session_id" "$home_label")
 
-    raw_out=$(cmux new-workspace --cwd "$project_dir" --command "$resume_cmd" 2>/dev/null)
-    ws_ref=$(parse_cmux_ref "$raw_out")
-    if [[ $? -eq 0 && -n "$ws_ref" ]]; then
+    ws_ref=$(create_and_resume "$project_dir" "$resume_cmd")
+    if [[ -n "$ws_ref" ]]; then
       if [[ "$RENAME" == true ]]; then
         short_name=$(echo "$first_msg" | cut -c1-30)
         cmux rename-workspace --workspace "$ws_ref" "$short_name" 2>/dev/null || true
@@ -180,12 +225,11 @@ elif [[ "$MODE" == "split" ]]; then
   i=0
 
   while [[ $i -lt ${#SESSIONS[@]} ]]; do
-    # First session in workspace: create workspace
+    # First session in workspace: create workspace + send resume
     IFS='|' read -r _ _ sid1 dir1 msg1 home1 <<< "${SESSIONS[$i]}"
     resume_cmd1=$(build_resume_cmd "$sid1" "$home1")
 
-    raw_out=$(cmux new-workspace --cwd "$dir1" --command "$resume_cmd1" 2>/dev/null)
-    ws_ref=$(parse_cmux_ref "$raw_out")
+    ws_ref=$(create_and_resume "$dir1" "$resume_cmd1")
     if [[ -z "$ws_ref" ]]; then
       echo "  ✗ workspace ${ws_num}: failed to create"
       i=$((i + 1))
@@ -207,17 +251,22 @@ elif [[ "$MODE" == "split" ]]; then
       col=$((pane_idx % COLS))
 
       if [[ $col -eq 0 ]]; then
-        # New row: split down
-        cmux new-split down --workspace "$ws_ref" 2>/dev/null
+        split_out=$(cmux new-split down --workspace "$ws_ref" 2>/dev/null)
       else
-        # Same row: split right
-        cmux new-split right --workspace "$ws_ref" 2>/dev/null
+        split_out=$(cmux new-split right --workspace "$ws_ref" 2>/dev/null)
       fi
 
-      # Send resume command to the newly created (focused) surface
+      # Extract new surface ref from split output and target it directly
+      new_surface=$(parse_surface_ref "$split_out")
       sleep 0.3
-      cmux send --workspace "$ws_ref" "$resume_cmd" 2>/dev/null
-      cmux send-key --workspace "$ws_ref" Enter 2>/dev/null
+      if [[ -n "$new_surface" ]]; then
+        cmux send --workspace "$ws_ref" --surface "$new_surface" "$resume_cmd" 2>/dev/null
+        cmux send-key --workspace "$ws_ref" --surface "$new_surface" Enter 2>/dev/null
+      else
+        # Fallback: send to workspace (targets focused surface)
+        cmux send --workspace "$ws_ref" "$resume_cmd" 2>/dev/null
+        cmux send-key --workspace "$ws_ref" Enter 2>/dev/null
+      fi
 
       pane_idx=$((pane_idx + 1))
       i=$((i + 1))
@@ -233,8 +282,10 @@ elif [[ "$MODE" == "split" ]]; then
   echo "═══════════════════════════════════════════════════════════════"
 fi
 
-echo ""
-echo "Navigate workspaces:"
-echo "  Cmd+1-9              jump by number"
-echo "  Cmd+Shift+]          next workspace"
-echo "  Cmd+Shift+[          previous workspace"
+if [[ "$MODE" != "plain" ]]; then
+  echo ""
+  echo "Navigate workspaces:"
+  echo "  Cmd+1-9              jump by number"
+  echo "  Cmd+Shift+]          next workspace"
+  echo "  Cmd+Shift+[          previous workspace"
+fi
