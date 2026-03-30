@@ -22,7 +22,7 @@ cmux variant of `recover-sessions` — replaces tmux backend with cmux workspace
 ## Prerequisites
 
 - `cmux-recover-sessions` script in `skills/cmux-recover-sessions/cmux-recover-sessions` (symlinked to `~/.local/bin/`)
-- cmux running (`cmux ping` should succeed)
+- cmux running (`cmux ping` should succeed) — not required for `--plain` and `--list` modes
 
 ## Process
 
@@ -101,6 +101,7 @@ How should sessions be opened?
 3. Split 2x1 — 2 sessions per workspace (left/right)
 4. Split 2x2 — 4 sessions per workspace (grid)
 5. Custom split (enter CxR)
+6. Plain — output resume commands only (no workspace creation)
 ```
 
 Show calculated workspace count: "N sessions ÷ P panes = W workspaces"
@@ -135,7 +136,7 @@ Proceed with recovery?
 Run the approved command:
 
 ```bash
-cmux-recover-sessions --from <start> --to <end> [--tabs|--split CxR]
+cmux-recover-sessions --from <start> --to <end> [--tabs|--split CxR|--plain]
 ```
 
 ### Step 8: Verify and Guide
@@ -166,6 +167,7 @@ cmux workspaces are now open. Navigate with:
 | `--to DATE` | End date (default: yesterday) |
 | `--tabs` | 1 session per workspace tab (default) |
 | `--split CxR` | CxR grid per workspace |
+| `--plain` | Output resume commands only (no workspace creation) |
 | `--list` | List only, don't create workspaces |
 | `--rename` | Auto-rename workspaces with session info |
 
@@ -180,6 +182,19 @@ cmux window
   ├─ workspace 2 (tab): claude --resume session-2
   ├─ workspace 3 (tab): claude --resume session-3
   └─ workspace 4 (tab): claude --resume session-4
+```
+
+**Plain mode:**
+```
+$ cmux-recover-sessions --from 03-25 --plain
+
+# Session 1: 하이브 좀비락 확인
+cd "/Users/.../laplace-dev-hub"
+claude --resume abc123
+
+# Session 2: code-review for ...
+cd "/Users/.../laplace-dev-hub"
+claude --resume def456
 ```
 
 **Split mode (e.g., 1x2):**
