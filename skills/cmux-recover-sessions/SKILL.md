@@ -188,7 +188,7 @@ cmux window
 ```
 $ cmux-recover-sessions --from 03-25 --plain
 
-# Session 1: 하이브 좀비락 확인
+# Session 1: Check Hive zombie locks
 cd "/Users/.../laplace-dev-hub"
 claude --resume abc123
 

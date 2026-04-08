@@ -1,6 +1,6 @@
 ---
 name: cmux-orchestrator
-description: Dispatch and supervise multiple Claude Code workers in cmux workspaces. Crash-resilient, model-routed, file-based coordination. Triggers on "orchestrate", "dispatch", "오케스트레이터", "cmux workers".
+description: Dispatch and supervise multiple Claude Code workers in cmux workspaces. Crash-resilient, model-routed, file-based coordination. Triggers on "orchestrate", "dispatch", "cmux workers".
 ---
 
 # cmux Orchestrator
@@ -37,17 +37,17 @@ Each worker is a separate process — master crash does NOT kill workers.
 - Multiple independent tasks to execute in parallel
 - Batch processing (code reviews, test runs, migrations)
 - Any work that benefits from crash isolation
-- Triggers: "orchestrate", "dispatch", "오케스트레이터", "cmux workers"
+- Triggers: "orchestrate", "dispatch", "cmux workers"
 
 ## Inputs
 
 User provides a task list:
 
 ```
-다음 작업들을 병렬로 처리해주세요:
-1. laplace-airflow-dags PR #7042 코드 리뷰
-2. laplace-web-v2 issue #300 구현
-3. Hub #789 상태 확인
+Please process these tasks in parallel:
+1. laplace-airflow-dags PR #7042 code review
+2. laplace-web-v2 issue #300 implementation
+3. Hub #789 status check
 ```
 
 Or a structured task file:
@@ -55,9 +55,9 @@ Or a structured task file:
 ```json
 // /tmp/orchestrator/tasks.json
 [
-  {"description": "PR #7042 코드 리뷰", "complexity": "medium", "cwd": "/path/to/repo"},
-  {"description": "issue #300 구현", "complexity": "medium", "cwd": "/path/to/repo"},
-  {"description": "Hub #789 상태 확인", "complexity": "low", "cwd": "/path/to/repo"}
+  {"description": "PR #7042 code review", "complexity": "medium", "cwd": "/path/to/repo"},
+  {"description": "issue #300 implementation", "complexity": "medium", "cwd": "/path/to/repo"},
+  {"description": "Hub #789 status check", "complexity": "low", "cwd": "/path/to/repo"}
 ]
 ```
 
@@ -69,10 +69,10 @@ For each task, determine complexity and assign model:
 
 ```
 Task → Complexity Router → Model Assignment
-  "코드 리뷰"     → medium  → sonnet
-  "구현"           → medium  → sonnet
-  "상태 확인"      → low     → haiku
-  "아키텍처 설계"  → high    → opus
+  "code review"     → medium  → sonnet
+  "implement"       → medium  → sonnet
+  "status check"    → low     → haiku
+  "architecture"    → high    → opus
 ```
 
 **Routing rules (from CLAUDE.md Model Routing Rules):**
@@ -89,9 +89,9 @@ Present the dispatch plan and ask for confirmation:
 ═══════════════════════════════════════════════
 
  #  Task                          Model    Budget
- 1  PR #7042 코드 리뷰            sonnet   $0.50
- 2  issue #300 구현               sonnet   $1.00
- 3  Hub #789 상태 확인            haiku    $0.10
+ 1  PR #7042 code review          sonnet   $0.50
+ 2  issue #300 implementation     sonnet   $1.00
+ 3  Hub #789 status check         haiku    $0.10
 
  Total budget: $1.60
  Max concurrent workers: 3
@@ -235,9 +235,9 @@ print(f'Task ${task_id}: \${cost:.4f} — {(result or \"\")[:80]}')
 ═══════════════════════════════════════════════
 
  #  Task                    Status     Cost     Result
- 1  PR #7042 리뷰           ✅ done    $0.24    "3 issues found, 1 critical..."
- 2  issue #300 구현         ✅ done    $0.45    "Feature implemented, tests pass..."
- 3  Hub #789 확인           ✅ done    $0.03    "Status: all tasks completed..."
+ 1  PR #7042 review         ✅ done    $0.24    "3 issues found, 1 critical..."
+ 2  issue #300 impl         ✅ done    $0.45    "Feature implemented, tests pass..."
+ 3  Hub #789 check          ✅ done    $0.03    "Status: all tasks completed..."
 
  Total: 3 tasks, 0 failed, $0.72 total cost
  Duration: 4m 32s

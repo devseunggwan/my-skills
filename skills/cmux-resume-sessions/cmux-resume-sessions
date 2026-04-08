@@ -105,12 +105,6 @@ while [[ $i -lt $total ]]; do
   sleep 0.2
   cmux rename-workspace --workspace "$ws_ref" "$name" 2>/dev/null || true
 
-  # Auto-confirm "Resume from summary" prompt if it appears
-  if [[ "$NO_CLAUDE" == "false" ]]; then
-    sleep 2
-    cmux send-key --workspace "$ws_ref" Enter 2>/dev/null || true
-  fi
-
   echo "  ✓ $name → $ws_ref ($cwd)"
   created=$((created + 1))
   i=$((i + 1))

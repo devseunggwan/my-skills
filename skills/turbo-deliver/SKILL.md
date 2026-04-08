@@ -1,6 +1,6 @@
 ---
 name: turbo-deliver
-description: Compound delivery — verify + review + PR + merge + cleanup + compounding in one step. Triggers on "deliver", "turbo-deliver", "마무리", "배달".
+description: Compound delivery — verify + review + PR + merge + cleanup + compounding in one step. Triggers on "deliver", "turbo-deliver", "finish up".
 ---
 
 # Turbo Deliver
@@ -25,7 +25,7 @@ NO SKIPPING. NO REORDERING.
 ## When to Use
 
 - After implementation is complete
-- Triggers: "deliver", "turbo-deliver", "마무리", "배달"
+- Triggers: "deliver", "turbo-deliver", "finish up"
 - No input required — auto-detects everything from current git state
 
 ## Inputs (Auto-Detected)

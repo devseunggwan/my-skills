@@ -1,6 +1,6 @@
 ---
 name: turbo-setup
-description: Compound setup — issue + plan + branch + worktree + deps in one step. Triggers on "setup", "착수", "turbo-setup", "quick start".
+description: Compound setup — issue + plan + branch + worktree + deps in one step. Triggers on "setup", "turbo-setup", "quick start".
 ---
 
 # Turbo Setup
@@ -24,7 +24,7 @@ If any step fails, roll back completed steps and report.
 ## When to Use
 
 - Starting any new task (feature, bugfix, refactoring)
-- Triggers: "setup", "착수", "turbo-setup", "quick start"
+- Triggers: "setup", "turbo-setup", "quick start"
 - User provides: task description (title or URL)
 
 ## Inputs
@@ -32,7 +32,7 @@ If any step fails, roll back completed steps and report.
 The user provides ONE of:
 1. **Task description**: `"feat(dashboard): add chart filtering"`
 2. **Slack/GitHub URL**: `https://laplacetec.slack.com/archives/...`
-3. **Issue reference**: `"Hub #700 작업 시작"`
+3. **Issue reference**: `"Hub #700 start work"`
 
 ## Outputs (for chaining)
 
