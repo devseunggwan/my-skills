@@ -4,8 +4,8 @@ description: >
   Session retrospect — analyze current Claude Code session against CLAUDE.md rules,
   identify friction patterns and root causes, propose context-appropriate improvement
   actions, then execute after user approval.
-  Triggers on "retrospect", "회고", "삽질 정리", "세션 개선", "what went wrong",
-  "이번 세션", "불편했던 거", "개선해", "뭐가 문제였어".
+  Triggers on "retrospect", "what went wrong", "session review",
+  "session improvement", "what was the issue", "improve".
 ---
 
 # Retrospect

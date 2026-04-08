@@ -3,7 +3,7 @@ name: brainstorm
 description: >
   Diamond Model brainstorming — diverge ideas without judgment, then converge with quantified evaluation.
   Wraps deep-interview for requirements clarification.
-  Triggers on "brainstorm", "브레인스토밍", "아이디어", "ideate", "what if", "explore options".
+  Triggers on "brainstorm", "ideate", "what if", "explore options".
 ---
 
 # Brainstorm
@@ -31,7 +31,7 @@ If you haven't completed Phase 3 (Evaluate), you cannot recommend an idea.
 - Exploring possibilities for a new feature, architecture, or tool
 - Stuck on a problem and need fresh perspectives
 - Multiple valid approaches exist and need structured comparison
-- User says "brainstorm", "아이디어", "what if", "explore options"
+- User says "brainstorm", "ideate", "what if", "explore options"
 
 **Use this ESPECIALLY when:**
 - "Just go with the obvious approach" feels tempting
