@@ -1,6 +1,6 @@
 # Praxis
 
-Personal collection of Claude Code skills for development workflow automation.
+Development workflow skills for Claude Code — disciplined, fast, resilient.
 
 > **Note:** Skills may be added, removed, or restructured at any time without prior notice. This is a personal toolbox — not a stable API.
 
@@ -43,7 +43,7 @@ git clone https://github.com/devseunggwan/praxis.git ~/projects/praxis
 Register as a Claude Code skill directory:
 
 ```bash
-claude skill add ~/projects/my-skills/skills/<skill-name>
+claude skill add ~/projects/praxis/skills/<skill-name>
 ```
 
 ## License
