@@ -44,8 +44,9 @@ bash "$(dirname "$0")/cmux-resume-sessions" [snapshot-file]
 **What gets restored:**
 - Creates a cmux workspace per session (with `--cwd` for working directory)
 - Sets workspace name to match the saved name
-- Runs `claude --continue` in each workspace (continues the most recent conversation for that cwd)
+- Runs `claude --resume <session-id>` if session ID is available, otherwise `claude --continue` (continues the most recent conversation for that cwd)
 - Sessions with non-existent cwd are skipped (with warning)
+- Duplicate workspaces (same name already exists) are skipped automatically
 
 **Flags:**
 - `--no-claude`: Skip auto-starting Claude Code (restore workspace structure only)
