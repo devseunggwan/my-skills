@@ -188,12 +188,12 @@ cmux window
 ```
 $ cmux-recover-sessions --from 03-25 --plain
 
-# Session 1: Check Hive zombie locks
-cd "/Users/.../laplace-dev-hub"
+# Session 1: Check zombie locks
+cd "/Users/.../my-project"
 claude --resume abc123
 
 # Session 2: code-review for ...
-cd "/Users/.../laplace-dev-hub"
+cd "/Users/.../my-project"
 claude --resume def456
 ```
 

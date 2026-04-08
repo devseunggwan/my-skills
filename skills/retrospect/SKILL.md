@@ -149,7 +149,7 @@ For each approved action:
    - Include: rule, why, how to apply
    - Update `MEMORY.md` index
 
-2. **GitHub issue** → Use `laplace-dev-hub:create-hub-issue` (Hub) or `gh issue create` (other repos)
+2. **GitHub issue** → Use project's issue creation skill or `gh issue create`
    - Title: Conventional Commits format, English
    - Body: Korean, with background + task list
 
@@ -217,4 +217,4 @@ If you catch yourself:
 **OMC delegation:**
 - `tracer` agent: causal chain analysis for complex friction patterns
 - `analyst` agent: cluster multiple friction events into root causes
-- `create-hub-issue` skill: GitHub issue creation in Stage 4
+- Project's issue creation skill: GitHub issue creation in Stage 4

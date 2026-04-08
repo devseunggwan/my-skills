@@ -16,7 +16,7 @@ Auto-detects whether a PR exists to choose the right mode.
 **Core principle:** Delivery is a pipeline, not a checklist. Each stage gates the next.
 
 **Chains from:** `turbo-setup` (auto-detects issue/branch from git state)
-**Delegates to:** `verify-completion`, `code-review`, `create-hub-pr`
+**Delegates to:** `verify-completion`, project's code review skill, project's PR creation skill
 
 ## The Iron Law
 
@@ -99,9 +99,10 @@ fi
 2. Re-run verification
 3. If still failing after 2 attempts → **STOP and report to user**
 
-### Stage 2: Code Review (delegates to `code-review`)
+### Stage 2: Code Review (pluggable)
 
-Invoke `laplace-dev-hub:code-review` logic:
+Delegate to the project's code review skill (defined in project CLAUDE.md routing).
+Default: `oh-my-claudecode:code-reviewer` agent.
 
 1. Review diff against base branch
 2. Check for security vulnerabilities, logic defects, SOLID violations
@@ -114,11 +115,13 @@ Invoke `laplace-dev-hub:code-review` logic:
 | Medium | Log as PR comment, proceed |
 | Low/Recommended | Log as PR comment, proceed |
 
-### Stage 3: Create PR (delegates to `create-hub-pr`)
+### Stage 3: Create PR (pluggable)
+
+Delegate to the project's PR creation skill (defined in project CLAUDE.md routing).
+Default: `gh pr create` with auto-detected repo.
 
 ```bash
 gh pr create \
-  --repo "laplacetec/${TARGET_REPO}" \
   --title "${TITLE}" \
   --label "${PR_LABEL}" \
   --assignee "@me" \
@@ -177,7 +180,7 @@ Wait for CI, then squash merge:
 MAX_WAIT=300  # 5 minutes
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
-  STATUS=$(gh pr checks "$PR_NUMBER" --repo "laplacetec/${TARGET_REPO}" 2>/dev/null)
+  STATUS=$(gh pr checks "$PR_NUMBER" --repo "${TARGET_REPO}" 2>/dev/null)
   if echo "$STATUS" | grep -q "All checks were successful"; then
     break
   elif echo "$STATUS" | grep -q "fail"; then
@@ -188,7 +191,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   ELAPSED=$((ELAPSED + 10))
 done
 
-gh pr merge "$PR_NUMBER" --repo "laplacetec/${TARGET_REPO}" --squash --delete-branch
+gh pr merge "$PR_NUMBER" --repo "${TARGET_REPO}" --squash --delete-branch
 ```
 
 ### Stage 6: Cleanup
@@ -288,21 +291,6 @@ Step 0: MODE DETECTION
 └─────────┘    └─────────┘    └─────────┘    └──────────┘    └─────────┘    └─────────┘    └─────────┘
  full only      full only      full only      both modes      both modes     both modes     both modes
 ```
-
-## Per-Repo Default Branch Reference
-
-| Repository | Default Branch |
-|------------|---------------|
-| `laplace-dev-hub` | `main` |
-| `laplace-web-v2` | `main` |
-| `laplace-data-platform-mcp` | `main` |
-| `laplace-airflow-dags` | `dev` |
-| `laplace-airflow-dags-v3` | `dev` |
-| `laplace-etl` | `dev` |
-| `laplace-analytics-backend` | `dev` |
-| `analytics-frontend` | `dev` |
-| `laplace-gitops` | `dev` |
-| `laplace-ai-agent` | `dev` |
 
 ## Rationalization Prevention
 

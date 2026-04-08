@@ -31,7 +31,7 @@ If any step fails, roll back completed steps and report.
 
 The user provides ONE of:
 1. **Task description**: `"feat(dashboard): add chart filtering"`
-2. **Slack/GitHub URL**: `https://laplacetec.slack.com/archives/...`
+2. **Slack/GitHub URL**: `https://your-org.slack.com/archives/...`
 3. **Issue reference**: `"Hub #700 start work"`
 
 ## Outputs (for chaining)
@@ -60,7 +60,7 @@ After successful setup, report these values (used by `turbo-deliver`):
 Determine task type and target repo from user input.
 
 **If URL provided:**
-- Slack URL → fetch message content via `mcp__laplace-slack__slack_get_channel_history`
+- Slack URL → fetch message content via Slack MCP (if configured)
 - GitHub URL → parse repo/issue/PR reference
 - Extract task description from content
 
@@ -79,20 +79,16 @@ What type of task is this?
 5. Other
 ```
 
-### Step 2: Create Issue
+### Step 2: Create Issue (pluggable)
 
-Invoke `laplace-dev-hub:create-hub-issue` skill logic:
+Delegate to the project's issue creation skill (defined in project CLAUDE.md routing).
+Default: `gh issue create` in the current repo.
 
 ```bash
-# Determine if Hub issue or repo-local issue
-# Hub issue: cross-repo features → laplace-dev-hub
-# Repo issue: repo-specific fixes → target repo
-
-TITLE="<type>(<scope>): <description>"  # English, Conventional Commits
-BODY="<Korean description with task list>"
+TITLE="<type>(<scope>): <description>"  # Conventional Commits format
+BODY="<description with task list>"
 
 gh issue create \
-  --repo laplacetec/laplace-dev-hub \
   --title "$TITLE" \
   --label "type:<type>" \
   --body "$BODY"
@@ -102,7 +98,6 @@ gh issue create \
 
 **Validation:**
 - Title is Conventional Commits format
-- Body contains Korean text
 - No duplicate issues (search first)
 
 ### Step 3: Create Branch
@@ -120,8 +115,6 @@ BRANCH="hub-${ISSUE_NUMBER}-${TYPE}-${SHORT_DESC}"
 | Hotfix | `prod` (or `main`) |
 
 ### Step 4: Create Worktree
-
-Invoke `oh-my-claudecode:project-session-manager` logic:
 
 ```bash
 # Determine target repo path
@@ -191,16 +184,6 @@ worktree → git worktree remove
 branch → git branch -D
 issue → gh issue close (with /cancel comment)
 ```
-
-## Feature-Repo Mapping (Quick Reference)
-
-| Keyword | Target Repo | Default Branch |
-|---------|-------------|----------------|
-| dag, pipeline, etl | laplace-airflow-dags | dev |
-| dag v3, airflow v3 | laplace-airflow-dags-v3 | dev |
-| api, endpoint, backend | laplace-analytics-backend | dev |
-| ui, component, chart | laplace-web-v2 | main |
-| hub, tooling | laplace-dev-hub | main |
 
 ## Chaining Interface
 

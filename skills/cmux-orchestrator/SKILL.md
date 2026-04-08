@@ -45,9 +45,9 @@ User provides a task list:
 
 ```
 Please process these tasks in parallel:
-1. laplace-airflow-dags PR #7042 code review
-2. laplace-web-v2 issue #300 implementation
-3. Hub #789 status check
+1. my-project PR #42 code review
+2. frontend issue #100 implementation
+3. Issue #55 status check
 ```
 
 Or a structured task file:
@@ -55,9 +55,9 @@ Or a structured task file:
 ```json
 // /tmp/orchestrator/tasks.json
 [
-  {"description": "PR #7042 code review", "complexity": "medium", "cwd": "/path/to/repo"},
-  {"description": "issue #300 implementation", "complexity": "medium", "cwd": "/path/to/repo"},
-  {"description": "Hub #789 status check", "complexity": "low", "cwd": "/path/to/repo"}
+  {"description": "PR #42 code review", "complexity": "medium", "cwd": "/path/to/repo"},
+  {"description": "issue #100 implementation", "complexity": "medium", "cwd": "/path/to/repo"},
+  {"description": "issue #55 status check", "complexity": "low", "cwd": "/path/to/repo"}
 ]
 ```
 
@@ -89,9 +89,9 @@ Present the dispatch plan and ask for confirmation:
 ═══════════════════════════════════════════════
 
  #  Task                          Model    Budget
- 1  PR #7042 code review          sonnet   $0.50
- 2  issue #300 implementation     sonnet   $1.00
- 3  Hub #789 status check         haiku    $0.10
+ 1  PR #42 code review             sonnet   $0.50
+ 2  issue #100 implementation     sonnet   $1.00
+ 3  issue #55 status check        haiku    $0.10
 
  Total budget: $1.60
  Max concurrent workers: 3
@@ -235,9 +235,9 @@ print(f'Task ${task_id}: \${cost:.4f} — {(result or \"\")[:80]}')
 ═══════════════════════════════════════════════
 
  #  Task                    Status     Cost     Result
- 1  PR #7042 review         ✅ done    $0.24    "3 issues found, 1 critical..."
- 2  issue #300 impl         ✅ done    $0.45    "Feature implemented, tests pass..."
- 3  Hub #789 check          ✅ done    $0.03    "Status: all tasks completed..."
+ 1  PR #42 review            ✅ done    $0.24    "3 issues found, 1 critical..."
+ 2  issue #100 impl         ✅ done    $0.45    "Feature implemented, tests pass..."
+ 3  issue #55 check         ✅ done    $0.03    "Status: all tasks completed..."
 
  Total: 3 tasks, 0 failed, $0.72 total cost
  Duration: 4m 32s

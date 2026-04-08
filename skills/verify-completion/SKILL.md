@@ -35,7 +35,7 @@ If you haven't run the verification command in this message, you cannot claim it
 
 **Workflow position:**
 ```
-[implementation] → [code-review] → [verify-completion] → [create-hub-pr]
+[implementation] → [code-review] → [verify-completion] → [create-pr]
 ```
 
 ## The Gate Function
@@ -153,7 +153,7 @@ If you catch yourself about to:
 ## Integration
 
 **Previous step:** `code-review` (code quality self-review)
-**Next step:** `create-hub-pr` (PR creation)
+**Next step:** PR creation (via project's PR skill or `gh pr create`)
 
 **OMC delegation:**
 - `ultraqa`: test → verify → fix → repeat cycle
