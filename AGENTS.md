@@ -2,25 +2,62 @@
 
 Development workflow skills for Claude Code — disciplined, fast, resilient.
 
-## Skills
+Each skill is an orchestrator with pluggable steps. External integrations (issue tracker, PR tool, code review) are routed via the project's CLAUDE.md — no hardcoded dependencies.
 
-| Skill | Purpose | Triggers |
-|-------|---------|----------|
-| `turbo-setup` | Compound setup — issue + plan + branch + worktree + deps in one step | "setup", "turbo-setup", "quick start" |
-| `turbo-deliver` | Compound delivery — auto-detects PR state for full pipeline or merge-only mode | "deliver", "turbo-deliver", "finish up", "cleanup", "finish branch" |
-| `verify-completion` | Enforce verification evidence before completion claims | "verify", "verification", "done check" |
-| `debug` | Systematic 4-phase debugging with root cause investigation | "debug", "why failing", "root cause" |
-| `brainstorm` | Diamond Model brainstorming — diverge then converge with evaluation | "brainstorm", "ideate", "what if", "explore options" |
-| `retrospect` | Session retrospect — find friction root causes, propose improvements | "retrospect", "what went wrong", "session review" |
-| `recover-sessions` | Bulk recover Claude Code sessions after power loss (tmux) | "recover", "session recovery", "power recovery" |
-| `cmux-recover-sessions` | Bulk recover sessions after crash (cmux) | "recover cmux", "cmux session recovery" |
-| `cmux-save-sessions` | Save cmux session list as JSON snapshot | "save sessions", "cmux save" |
-| `cmux-resume-sessions` | Restore cmux workspaces from JSON snapshot | "resume sessions", "cmux resume" |
-| `cmux-session-manager` | cmux session lifecycle — status, cleanup, init, report | "cmux status", "cmux cleanup" |
-| `cmux-orchestrator` | Dispatch and supervise parallel Claude Code workers | "orchestrate", "dispatch", "cmux workers" |
+## Skills (12)
 
-## Design Principle
+### Workflow Lifecycle
 
-- **Praxis = discipline / orchestration** (when, what order, why)
-- **OMC = execution capability** (ultraqa, debugger, code-reviewer)
-- Skills enforce workflow gates; OMC agents do the actual work
+| Skill | Purpose | Pluggable Steps |
+|-------|---------|-----------------|
+| `turbo-setup` | Compound setup — issue + plan + branch + worktree + deps in one pass | issue creation, planning |
+| `turbo-deliver` | Compound delivery — auto-detects PR state for full or merge-only mode | code review, PR creation |
+| `verify-completion` | Enforce verification evidence before any completion claim | — (built-in) |
+
+### Development
+
+| Skill | Purpose |
+|-------|---------|
+| `debug` | Systematic 4-phase debugging — root cause investigation before any fix |
+| `brainstorm` | Diamond Model — diverge ideas, then converge with quantified evaluation |
+| `retrospect` | Session retrospect — find friction root causes, propose improvements |
+
+### Session Management
+
+| Skill | Purpose |
+|-------|---------|
+| `cmux-save-sessions` | Save cmux session list as JSON snapshot |
+| `cmux-resume-sessions` | Restore cmux workspaces from JSON snapshot |
+| `cmux-recover-sessions` | Bulk recover sessions after crash (cmux backend) |
+| `recover-sessions` | Bulk recover sessions after power loss (tmux backend) |
+| `cmux-session-manager` | Daily session lifecycle — status dashboard, cleanup, reorganize |
+| `cmux-orchestrator` | Dispatch and supervise parallel Claude Code workers in cmux |
+
+## Architecture
+
+```
+Project CLAUDE.md (routing config)
+        │
+        ▼
+┌─ turbo-setup ────────────────────────────────────┐
+│  issue(pluggable) → plan(pluggable) → branch     │
+│  → worktree → deps                               │
+└──────────────────────────────────────────────────┘
+        │  implement...
+        ▼
+┌─ turbo-deliver ──────────────────────────────────┐
+│  Step 0: mode detect (PR exists?)                │
+│  Full:  verify → review(pluggable) → PR(pluggable)│
+│  Both:  compound → merge → cleanup → learn       │
+└──────────────────────────────────────────────────┘
+```
+
+**Pluggable** = delegated to project's CLAUDE.md routing. Default: `gh` CLI.
+**Built-in** = git operations, universal across all projects.
+
+## Design Principles
+
+- **Orchestrator + pluggable steps**: turbo-* stay as single skills, each step is swappable via CLAUDE.md routing
+- **CLAUDE.md is the interface**: no config files — project instructions define routing
+- **SRP per skill**: each skill has one responsibility, chaining connects them
+- **Discipline over convenience**: Iron Laws gate each phase, no skipping
