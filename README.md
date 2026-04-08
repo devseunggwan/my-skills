@@ -39,7 +39,8 @@ Development workflow skills for Claude Code — disciplined, fast, resilient.
 ### Plugin (recommended)
 
 ```bash
-claude plugin add devseunggwan/praxis
+/plugin marketplace add https://github.com/devseunggwan/praxis
+/plugin install praxis
 ```
 
 ### Manual
