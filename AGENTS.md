@@ -4,7 +4,7 @@ Development workflow skills for Claude Code — disciplined, fast, resilient.
 
 Each skill is an orchestrator with pluggable steps. External integrations (issue tracker, PR tool, code review) are routed via the project's CLAUDE.md — no hardcoded dependencies.
 
-## Skills (14)
+## Skills (12)
 
 ### Workflow Lifecycle
 
@@ -12,15 +12,13 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 |-------|---------|-----------------|
 | `turbo-setup` | Compound setup — issue + plan + branch + worktree + deps in one pass | issue creation, planning |
 | `turbo-implement` | Implementation orchestrator — selects execution mode and chains to delivery | ralph, autopilot (pluggable) |
-| `turbo-deliver` | Compound delivery — auto-detects PR state for full or merge-only mode | code review, PR creation |
-| `verify-completion` | Enforce verification evidence before any completion claim | — (built-in) |
+| `turbo-completion` | Compound completion — verify + review + PR + merge + cleanup (--verify-only for standalone verification) | code review, PR creation |
 
 ### Development
 
 | Skill | Purpose |
 |-------|---------|
 | `debug` | Systematic 4-phase debugging — root cause investigation before any fix |
-| `brainstorm` | Diamond Model — diverge ideas, then converge with quantified evaluation |
 | `retrospect` | Session retrospect — find friction root causes, propose improvements |
 
 ### Session Management
@@ -53,8 +51,8 @@ Project CLAUDE.md (routing config)
 └──────────────────────────────────────────────────┘
         │
         ▼
-┌─ turbo-deliver ──────────────────────────────────┐
-│  Step 0: mode detect (PR exists?)                │
+┌─ turbo-completion ───────────────────────────────┐
+│  Stage 0: mode detect (verify-only / full / merge)│
 │  Full:  verify → review(pluggable) → PR(pluggable)│
 │  Both:  compound → merge → cleanup → learn       │
 └──────────────────────────────────────────────────┘

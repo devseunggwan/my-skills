@@ -12,15 +12,13 @@ Development workflow skills for Claude Code — disciplined, fast, resilient.
 |-------|-------------|
 | `turbo-setup` | Compound setup — issue + plan + branch + worktree + deps in one step |
 | `turbo-implement` | Implementation orchestrator — mode selection (manual/ralph/autopilot/guided) and chaining |
-| `turbo-deliver` | Compound delivery — auto-detects PR state for full pipeline or merge-only mode |
-| `verify-completion` | Enforce verification evidence before any completion claim |
+| `turbo-completion` | Compound completion — verify + review + PR + merge + cleanup in one step (--verify-only for standalone verification) |
 
 ### Development
 
 | Skill | Description |
 |-------|-------------|
 | `debug` | Systematic 4-phase debugging — root cause investigation before any fix attempt |
-| `brainstorm` | Diamond Model brainstorming — diverge ideas, then converge with quantified evaluation |
 | `retrospect` | Session retrospect — scan conversation against CLAUDE.md, find friction root causes, propose and execute improvements |
 
 ### Session Management
