@@ -4,7 +4,7 @@ Development workflow skills for Claude Code — disciplined, fast, resilient.
 
 Each skill is an orchestrator with pluggable steps. External integrations (issue tracker, PR tool, code review) are routed via the project's CLAUDE.md — no hardcoded dependencies.
 
-## Skills (13)
+## Skills (14)
 
 ### Workflow Lifecycle
 
@@ -32,6 +32,7 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 | `cmux-recover-sessions` | Bulk recover sessions after crash (cmux backend) |
 | `recover-sessions` | Bulk recover sessions after power loss (tmux backend) |
 | `cmux-session-manager` | Daily session lifecycle — status dashboard, cleanup, reorganize |
+| `cmux-delegate` | Delegate a task to an independent session with auto-collected context |
 | `cmux-orchestrator` | Dispatch and supervise parallel Claude Code workers in cmux |
 
 ## Architecture

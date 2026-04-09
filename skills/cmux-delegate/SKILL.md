@@ -130,7 +130,6 @@ trap 'rm -f "$PROMPT_FILE" "$SCRIPT_FILE"' EXIT
 
 cat "$PROMPT_FILE" | claude \
   --model {model} \
-  --output-format stream-json \
   --permission-mode auto \
   {budget_flag}
 
