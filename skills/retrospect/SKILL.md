@@ -76,7 +76,9 @@ You MUST complete each stage before proceeding to the next.
 
 ### Stage 2: Analyze Conversation
 
-**MANDATORY AGENT CALLS — before manual analysis, MUST call both:**
+**Pre-scan: Quick friction event identification** — scan the conversation for up to 5 friction events (user corrections, retries, skipped steps, stalls) BEFORE calling agents. This provides the input for agent calls.
+
+**MANDATORY AGENT CALLS — after pre-scan, MUST call both:**
 
 1. **tracer agent** (causal chain analysis):
    `Agent(subagent_type="oh-my-claudecode:tracer", model="sonnet")`
@@ -93,7 +95,7 @@ You MUST complete each stage before proceeding to the next.
 
 > **Scope:** Scan the most recent 50 turns, or back to the last session boundary.
 > Stop after identifying 5 distinct friction events — clustering (step 4) handles de-duplication.
-> If session history is not accessible, use the user's verbal summary as input to steps 2–6.
+> If session history is not accessible, use the user's verbal summary as input to steps 3–8.
 
 3. **Identify friction events** — moments where:
    - User corrected Claude's direction
@@ -138,7 +140,8 @@ You MUST complete each stage before proceeding to the next.
    | New pattern (not in MEMORY.md) | memory | First occurrence — capture for future reference |
    | Repeat (in MEMORY.md, 1-2회) | GitHub issue | Memory alone failed — need systemic fix |
    | Repeat (3회+) | hook or skill | Multiple memory entries = enforcement gap |
-   | Missing rule | CLAUDE.md draft | No rule exists for this pattern |
+   | Missing rule (new) | CLAUDE.md draft | No rule exists for this pattern |
+   | Missing rule + Repeat | CLAUDE.md draft + GitHub issue | 규칙 부재로 인한 반복 — 규칙 추가 + 이행 이슈 동시 생성 |
    | Tool friction | GitHub issue | Tool improvement needed |
    | One-off mistake | note only | No persistent action needed |
 
@@ -276,7 +279,7 @@ If you catch yourself:
 | **1. Load** | Read CLAUDE.md, form scan questions | Rule categories identified |
 | **2. Analyze** | Scan conversation, map to rules, find root cause | Root cause (not symptom) for each pattern |
 | **3. Report** | Present table, collect approval per item | User approved at least 1 item (or confirmed 0 findings) |
-| **4. Execute** | Run approved actions, show evidence | Completion report with links/paths |
+| **4. Execute** | Run approved actions, verify artifacts | Completion report with links/paths + verification results |
 
 ## Error Handling
 
