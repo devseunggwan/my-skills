@@ -1,35 +1,41 @@
 ---
-name: turbo-deliver
+name: turbo-completion
 description: >
-  Compound delivery — verify + review + PR + merge + cleanup + compounding in one step.
-  Auto-detects PR state to choose full pipeline or merge-only mode.
-  Triggers on "deliver", "turbo-deliver", "finish up", "cleanup", "finish branch", "branch cleanup".
+  Compound completion — verify + review + PR + merge + cleanup + compounding in one step.
+  Auto-detects PR state to choose full pipeline, merge-only, or verify-only mode.
+  Triggers on "deliver", "turbo-deliver", "turbo-completion", "finish up", "cleanup",
+  "finish branch", "branch cleanup", "verify", "verification", "done check", "completion check".
 ---
 
-# Turbo Deliver
+# Turbo Completion
 
 ## Overview
 
-Compresses the full delivery lifecycle into a single automated pass.
+Completes the full delivery lifecycle in a single automated pass.
 Auto-detects whether a PR exists to choose the right mode.
+Also serves as the standalone verification gate via `--verify-only`.
 
-**Core principle:** Delivery is a pipeline, not a checklist. Each stage gates the next.
+**Core principle:** Evidence before claims. Each stage gates the next. No shortcuts.
 
-**Chains from:** `turbo-setup` (auto-detects issue/branch from git state)
-**Delegates to:** `verify-completion`, project's code review skill, project's PR creation skill
+**Chains from:** `turbo-implement` (auto-detects issue/branch from git state)
+**Delegates to:** Project's code review skill, project's PR creation skill
 
 ## The Iron Law
 
 ```
+NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.
 EACH STAGE MUST PASS BEFORE THE NEXT BEGINS.
 NO SKIPPING. NO REORDERING.
 ```
 
+If you haven't run the verification command in this message, you cannot claim it passes.
+
 ## When to Use
 
-- After implementation is complete
+- After implementation is complete (full pipeline)
 - When a PR is ready to merge (merge-only mode)
-- Triggers: "deliver", "turbo-deliver", "finish up", "cleanup", "finish branch", "branch cleanup"
+- Before ANY completion claim — "done", "fixed", "passes" (`--verify-only`)
+- Triggers: "deliver", "turbo-completion", "finish up", "cleanup", "verify", "done check"
 - No input required — auto-detects everything from current git state
 
 ## Pluggable Steps — Fallback Defaults
@@ -54,20 +60,25 @@ On start, detect the current state and choose mode automatically:
 ```bash
 BRANCH=$(git branch --show-current)
 PR_JSON=$(gh pr list --head "$BRANCH" --state open --json number,title,url --jq '.[0]')
+VERIFY_ONLY=false  # set true if --verify-only flag or "verify"/"done check" trigger
 ```
 
-| Condition | Mode | Pipeline |
-|-----------|------|----------|
-| No open PR for current branch | **Full** | verify → review → PR → merge → compound → cleanup |
-| Open PR exists | **Merge-only** | compound → merge → cleanup |
+| Priority | Condition | Mode | Pipeline |
+|----------|-----------|------|----------|
+| 1st | `--verify-only` flag or verify trigger | **Verify-only** | verify (Stage 1 only) |
+| 2nd | No open PR for current branch | **Full** | verify → review → PR → merge → compound → cleanup |
+| 3rd | Open PR exists | **Merge-only** | compound → merge → cleanup |
+
+> Conditions are evaluated top-to-bottom; first match wins.
 
 Present the detected mode and ask for confirmation:
 
 ```
-Detected: PR #<N> exists for branch <branch>.
-1. Merge-only — compound + merge + cleanup
-2. Full pipeline — re-run verify + review before merge
-3. Cancel
+Detected: <state description>
+1. Verify-only — run tests/lint/build, report evidence
+2. Full pipeline — verify → review → PR → merge → cleanup
+3. Merge-only — compound + merge + cleanup (PR exists)
+4. Cancel
 ```
 
 ## Inputs (Auto-Detected)
@@ -83,20 +94,45 @@ DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '
 MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 ```
 
-**Validation (STOP if any fails):**
+**Validation (STOP if any fails) — full/merge-only modes:**
 - [ ] Currently in a worktree (not main repo)
 - [ ] Branch name contains issue number
 - [ ] Changes are committed (no dirty state)
 - [ ] Branch is pushed to remote
 
+**Validation — verify-only mode:**
+- [ ] None required (runs anywhere)
+
 ## Full Pipeline
 
-### Stage 1: Verify (delegates to `verify-completion`)
+### Stage 1: Verify (The Gate)
 
-Run all verification targets. **MUST pass before proceeding.**
+**The Gate Function — run BEFORE claiming any status:**
+
+```
+1. IDENTIFY: What command proves this claim?
+2. RUN: Execute the FULL command (fresh, complete)
+3. READ: Full output, check exit code, count failures
+4. VERIFY: Does output confirm the claim?
+   - If NO: State actual status with evidence
+   - If YES: State claim WITH evidence
+5. ONLY THEN: Make the claim
+
+Skip any step = lying, not verifying
+```
+
+**Verification Targets (auto-detect):**
+
+| Target | Typical Command | Required? |
+|--------|----------------|-----------|
+| Unit tests | `pytest -v`, `npm test`, `go test ./...` | **Always** |
+| Lint | `ruff check .`, `eslint .`, `golangci-lint run` | **Always** |
+| Build | `npm run build`, `cargo build`, `go build ./...` | If build system exists |
+| Type check | `mypy .`, `tsc --noEmit` | If type system exists |
+| Functional test | DAG trigger, API call, CLI execution | If external systems changed |
 
 ```bash
-# Auto-detect verification targets
+# Auto-detect and run
 if [ -f "pytest.ini" ] || [ -f "setup.py" ] || [ -d "tests" ]; then
   pytest -v
 fi
@@ -109,10 +145,40 @@ if command -v ruff &>/dev/null; then
 fi
 ```
 
+**Evidence Reporting — show actual output for each target:**
+
+```
+Verification results:
+- Tests: 34/34 pass (0 failures) — `pytest -v` output confirmed
+- Lint: 0 errors, 0 warnings — `ruff check .` output confirmed
+- Build: exit code 0 — `npm run build` output confirmed
+```
+
+**Common Failures — what counts as evidence:**
+
+| Claim | Requires | Not Sufficient |
+|-------|----------|----------------|
+| Tests pass | Test command output: 0 failures | Previous run, "should pass" |
+| Linter clean | Linter output: 0 errors | Partial check, extrapolation |
+| Build succeeds | Build command: exit 0 | Linter passing, "logs look good" |
+| Bug fixed | Test original symptom: passes | "Code changed, assumed fixed" |
+| Requirements met | Line-by-line checklist verified | "Tests pass" alone |
+| API works | Response body content verified | HTTP 200 status code alone |
+
+**OMC ultraqa delegation** — when available, delegate to `ultraqa` for the fix→retry cycle:
+
+```
+ultraqa cycle: test → verify → fix (on failure) → repeat (until pass)
+```
+
+If `ultraqa` is unavailable, run the manual retry:
+
 **On failure:**
 1. Auto-fix attempt (ruff format, eslint --fix)
 2. Re-run verification
 3. If still failing after 2 attempts → **STOP and report to user**
+
+**If `--verify-only`:** Report evidence and exit. Do not proceed to Stage 2.
 
 ### Stage 2: Code Review (pluggable)
 
@@ -260,10 +326,12 @@ Review this work cycle and capture reusable lessons:
 
 ## Outputs
 
+### Full / Merge-only mode
+
 ```
-═══════════════════════════════════════════════
- ✅ Turbo Deliver Complete
-═══════════════════════════════════════════════
+===================================================
+ Turbo Completion Complete
+===================================================
 
  PR:        #<number> (<title>) — MERGED
  Issue:     #<issue> — CLOSED
@@ -271,8 +339,25 @@ Review this work cycle and capture reusable lessons:
  Branch:    <name> — DELETED
  Mode:      full | merge-only
 
- Pipeline:  verify ✅ → review ✅ → PR ✅ → merge ✅ → compound ✅ → cleanup ✅
-═══════════════════════════════════════════════
+ Pipeline:  verify > review > PR > merge > compound > cleanup
+===================================================
+```
+
+### Verify-only mode
+
+```
+===================================================
+ Verification Complete
+===================================================
+
+ Branch:    <name>
+ Results:
+ - Tests:   34/34 pass
+ - Lint:    0 errors
+ - Build:   exit 0
+
+ Status:    PASS | FAIL (details above)
+===================================================
 ```
 
 ## Error Handling
@@ -297,6 +382,7 @@ Auto-fix attempt (silent) → 2nd attempt (silent) → STOP + report to user
 
 ```
 Step 0: MODE DETECTION
+  ├─ --verify-only → Verify-Only (Stage 1 only)
   ├─ No PR → Full Pipeline (Stages 1-3, then 4-7)
   └─ PR exists → Merge-Only (Stages 4-7)
 
@@ -304,26 +390,46 @@ Step 0: MODE DETECTION
 │ VERIFY  │───▶│ REVIEW  │───▶│   PR    │───▶│COMPOUND  │───▶│  MERGE  │───▶│ CLEANUP │───▶│ LEARN   │
 │ (1)     │    │ (2)     │    │ (3)     │    │ (4)      │    │ (5)     │    │ (6)     │    │ (7)     │
 └─────────┘    └─────────┘    └─────────┘    └──────────┘    └─────────┘    └─────────┘    └─────────┘
- full only      full only      full only      both modes      both modes     both modes     both modes
+ all modes      full only      full only      both modes      both modes     both modes     both modes
+    ▲
+    └─ --verify-only stops here
 ```
 
 ## Rationalization Prevention
 
 | Excuse | Reality |
 |--------|---------|
+| "Should work now" | RUN the verification |
+| "I'm confident" | Confidence is not evidence |
 | "I'll clean up later" | Later never comes. Zombie worktrees accumulate. |
 | "Compounding can be skipped this time" | Next session loses "why was this done?" context. |
-| "Simple change, no compounding needed" | Even simple changes have a "why". Leave the PR number at minimum. |
+| "Simple change, no verification needed" | Simple changes break too. Run it. |
 | "I'll compound after merge" | After merge, worktree is gone — can't add code comments on the feature branch. |
+| "HTTP 200 means it works" | Check response body content, not just status code. |
+| "Agent said success" | Verify independently. |
+| "Partial check is enough" | Partial proves nothing. |
+
+## Red Flags — STOP
+
+If you catch yourself about to:
+
+- Use "should", "probably", "seems to"
+- Express satisfaction before verification ("Great!", "Done!")
+- Commit / push / create PR without verification
+- Trust agent success reports at face value
+- Rely on partial verification
+- Skip the approval step for any stage
+
+**ALL of these mean: STOP. Run the Gate Function (Stage 1).**
 
 ## Integration
 
 **Workflow position:**
 ```
-[turbo-setup] → [EXECUTE] → [turbo-deliver] → [done]
-                               ├─ Step 0: mode detection
-                               ├─ Full: verify → review → PR
-                               └─ Both: compound → merge → cleanup → learn
+[turbo-setup] → [turbo-implement] → [turbo-completion] → [done]
+                                          ├─ --verify-only: Stage 1 only
+                                          ├─ Full: verify → review → PR
+                                          └─ Both: compound → merge → cleanup → learn
 ```
 
 **Previous step:** Implementation (manual or via `ralph`/`executor`)
