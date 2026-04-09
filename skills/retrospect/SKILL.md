@@ -26,6 +26,8 @@ Symptom-level fixes (e.g., "remember to do X") miss the underlying pattern.
 ```
 NO ACTION WITHOUT ROOT CAUSE ANALYSIS FIRST.
 PATTERN ≠ ROOT CAUSE. SYMPTOM ≠ ROOT CAUSE.
+REPEATED PATTERN + MEMORY = FAILED REMEDY. ESCALATE.
+TRACER + ANALYST CALLS ARE MANDATORY, NOT OPTIONAL.
 ```
 
 If you haven't completed Stage 2 (Analyze), you cannot propose actions.
@@ -74,24 +76,41 @@ You MUST complete each stage before proceeding to the next.
 
 ### Stage 2: Analyze Conversation
 
-**Scan the current session's conversation history:**
+**Pre-scan: Quick friction event identification** — scan the conversation for up to 5 friction events (user corrections, retries, skipped steps, stalls) BEFORE calling agents. This provides the input for agent calls.
+
+**Early exit**: If pre-scan finds 0 friction events, skip agent calls and exit with "No patterns found. ✅" — do not call agents with empty input.
+
+**MANDATORY AGENT CALLS — when pre-scan finds 1+ friction events, MUST call sequentially (analyst depends on tracer output):**
+
+1. **tracer agent** (causal chain analysis) — call FIRST:
+   `Agent(subagent_type="oh-my-claudecode:tracer", model="sonnet")`
+   - Input: friction events identified from pre-scan
+   - Output: causal chains with confidence scores
+   - Do NOT skip this call. "I can analyze this myself" is a Red Flag.
+
+2. **analyst agent** (pattern clustering) — call AFTER tracer completes:
+   `Agent(subagent_type="oh-my-claudecode:analyst", model="sonnet")`
+   - Input: friction events + tracer causal chains (from step 1)
+   - Output: clustered patterns with root causes
+
+**Then refine using agent outputs:**
 
 > **Scope:** Scan the most recent 50 turns, or back to the last session boundary.
-> Stop after identifying 5 distinct friction events — clustering (step 4) handles de-duplication.
-> If session history is not accessible, use the user's verbal summary as input to steps 2–4.
+> Stop after identifying 5 distinct friction events — clustering (step 6) handles de-duplication.
+> If session history is not accessible, use the user's verbal summary as input to steps 3–8.
 
-1. **Identify friction events** — moments where:
-   - User corrected Claude's direction
-   - Tool calls were retried unnecessarily
-   - A workflow step was skipped or out of order
-   - The session stalled, looped, or backtracked
+3. **Refine friction events with agent outputs** — merge pre-scan events with tracer/analyst results:
+   - Add any new friction events the agents identified that pre-scan missed
+   - Update causal chains using tracer confidence scores
+   - Drop false positives that agents ruled out
+   - Final list: up to 5 distinct friction events with causal chains attached
 
-2. **Map each event to a CLAUDE.md rule** (or gap):
+4. **Map each event to a CLAUDE.md rule** (or gap):
    - Which rule was applicable?
    - Was it followed, violated, or simply absent?
    - Quote or paraphrase the specific moment
 
-3. **Find root cause** for each pattern:
+5. **Find root cause** for each pattern:
 
    ```
    Symptom:   "Claude retried the same tool 3 times"
@@ -103,35 +122,72 @@ You MUST complete each stage before proceeding to the next.
    Root cause: "Task had 4 steps but plan mode was not entered — violated Planning Before Implementation"
    ```
 
-4. **Cluster patterns** — are multiple events the same root cause?
+6. **Cluster patterns** — are multiple events the same root cause?
    If 3+ events share a root cause → HIGH priority
+
+7. **Scan MEMORY.md for repeat patterns** (2-hop deterministic scan):
+   a. Read MEMORY.md index (single file read) — extract all feedback entry titles and file paths
+   b. For each finding's root cause, identify candidate matches from index titles (concept-level, not keyword)
+   c. Read each candidate feedback file to confirm semantic match (same root cause, not just similar keywords)
+   d. Only mark `repeat=true` if root cause is semantically identical
+      - Example: "workflow skip" in index + "워크플로우 위반" in finding = match
+      - Example: "commit" matching both "atomic commit" and "pre-commit hook" = NOT auto-match, read file to confirm
+   e. `repeat_count` = number of distinct feedback files with matching root cause
+   f. If match found with existing resolution action (issue/hook already created): mark as `resolved=true`
+
+8. **Auto-assign action type** based on escalation ladder:
+
+   | Condition | Action Type | Rationale |
+   |-----------|-------------|-----------|
+   | New pattern (structural root cause, likely to recur) | memory | First occurrence — capture for future reference |
+   | Repeat (in MEMORY.md, 1-2x) | GitHub issue | Memory alone failed — need systemic fix |
+   | Repeat (3x+) | hook or skill | Multiple memory entries = enforcement gap |
+   | Missing rule (new) | CLAUDE.md draft | No rule exists for this pattern |
+   | Missing rule + Repeat | CLAUDE.md draft + GitHub issue | Missing rule caused repeat — add rule + compliance issue |
+   | Tool friction | GitHub issue | Tool improvement needed |
+   | One-off mistake (situational cause, unlikely to recur) | note only | No persistent action needed |
+
+   **Distinguishing "New pattern" vs "One-off mistake":**
+   - **New pattern**: root cause is structural (missing rule, absent skill, unclear workflow) → likely to recur in future sessions
+   - **One-off mistake**: root cause is situational (context loss, typo, unusual edge case) → unlikely to recur under normal conditions
+   - When uncertain, default to `memory` (safer to capture than to miss)
+
+   ⚠️ **BLOCKED unless justified**: If `repeat=true`, the action type CANNOT be `memory`.
+
+   **Escape hatch**: If `repeat=true` AND `resolved=true` (existing issue/hook resolution already exists for this feedback), `note only` is allowed. In this case, include a sentence in the report confirming that the existing resolution is still effective.
 
 ### Stage 3: Report + Approval
 
-**Present findings in a structured table:**
+**Present findings in a structured table with escalation context:**
 
 ```
 ## Retrospect Report — {session_date}
 
-| # | Pattern | Root Cause | Rule Violated / Gap | Proposed Action | Priority |
-|---|---------|------------|---------------------|-----------------|----------|
-| 1 | {pattern} | {root_cause} | {rule_ref or "missing rule"} | {action} | HIGH/MED/LOW |
+| # | Pattern | Root Cause | Rule | Repeat? | Action Type | Escalation Reason | Priority |
+|---|---------|------------|------|---------|-------------|-------------------|----------|
+| 1 | {pattern} | {root_cause} | {rule_ref} | {Yes(N회)/No} | {action_type} | {reason} | HIGH/MED/LOW |
 ...
 
 No patterns found: "This session followed all CLAUDE.md rules. ✅"
 ```
 
-**Action types (context-dependent — pick what fits):**
+**Action type is auto-assigned by Stage 2 escalation ladder** — not freely chosen.
+The table from Stage 2 step 8 determines the action type. Stage 3 presents the result.
 
-| Pattern Type | Likely Action |
-|-------------|---------------|
-| Repeated rule violation | Add feedback entry to MEMORY.md |
-| Missing workflow step | Create GitHub issue to add skill / hook |
-| Absent rule for new pattern | Draft CLAUDE.md rule addition |
-| One-off mistake | Note only — no persistent action needed |
-| Systemic friction in tooling | Create GitHub issue for improvement |
+**Before approval, explain each action's concrete plan:**
 
-**Then ask for approval per item:**
+For each finding, present:
+1. **What will be created** (file path, issue title, hook name, or CLAUDE.md rule text)
+2. **Why this action type** (escalation rationale — e.g., "MEMORY.md에 이미 3회 기록됨")
+3. **How it will be verified** (what check confirms it works)
+
+Example:
+> Finding #2: 워크플로우 위반 (4회차)
+> - **Action**: GitHub issue — `feat(hook): add external-repo commit guard`
+> - **Why**: MEMORY.md에 이미 3회 기록됨. memory는 실패한 대책.
+> - **Verify**: issue URL 반환 + `gh issue view` 존재 확인
+
+**Then ask for approval per item using AskUserQuestion:**
 
 ```
 For each finding, user selects:
@@ -141,6 +197,8 @@ For each finding, user selects:
 Do NOT execute any action until user approves.
 
 ### Stage 4: Execute
+
+**"note only" items require no execution** — they appear in the completion report as acknowledged but need no persistent artifact.
 
 For each approved action:
 
@@ -162,7 +220,27 @@ For each approved action:
    - `{current_project}` = `$CLAUDE_PROJECT_DIR` or `git rev-parse --show-toplevel`
    - Include: problem, proposed skill trigger, pipeline sketch
 
-5. **Completion report:**
+5. **Hook code** → For enforcement-level actions (repeat 3회+):
+   a. Write hook script to `.claude/hooks/` or appropriate location
+   b. Present the hook code to user for review
+   c. Explain how to register in `.claude/settings.json` (show the exact JSON entry)
+   d. Use AskUserQuestion: "Hook을 settings.json에 등록할까요?" (✅ 등록 / ⏭ 파일만 유지 / 🕐 나중에)
+   e. If approved: Edit `.claude/settings.json` to register the hook
+   f. If skipped/deferred: hook 파일만 남기고 수동 등록 안내
+
+6. **Verification** — For each executed action, verify the artifact:
+
+   | Artifact | Verification |
+   |----------|-------------|
+   | MEMORY.md feedback | File exists + MEMORY.md index updated |
+   | GitHub issue | `gh issue view {url}` returns valid data |
+   | Hook code | Script file exists + settings.json 등록 확인 (dry-run은 hook 유형별로 달라 generic 불가) |
+   | CLAUDE.md draft | Diff shown to user + explicit approval received |
+   | Skill idea note | File exists in `.omc/plans/` |
+
+   Report verification results in the completion table.
+
+7. **Completion report:**
 
 ```
 ## Actions Executed
@@ -197,6 +275,9 @@ If you catch yourself:
 - Creating a GitHub issue for every minor friction (low-ROI noise)
 - Skipping the approval step and executing actions directly
 - Editing `$CLAUDE_CONFIG_DIR/CLAUDE.md` without presenting the draft first — this is global config, affects every project
+- Proposing `memory` for a pattern that already exists in MEMORY.md (MUST escalate instead)
+- Skipping tracer/analyst agent calls ("I can analyze this myself")
+- Generating artifacts without verification ("issue created" without showing URL)
 
 **ALL of these mean: STOP. Return to Stage 2.**
 
@@ -207,15 +288,18 @@ If you catch yourself:
 | **1. Load** | Read CLAUDE.md, form scan questions | Rule categories identified |
 | **2. Analyze** | Scan conversation, map to rules, find root cause | Root cause (not symptom) for each pattern |
 | **3. Report** | Present table, collect approval per item | User approved at least 1 item (or confirmed 0 findings) |
-| **4. Execute** | Run approved actions, show evidence | Completion report with links/paths |
+| **4. Execute** | Run approved actions, verify artifacts | Completion report with links/paths + verification results |
 
 ## Error Handling
 
 | Stage | Failure | Action |
 |-------|---------|--------|
 | Stage 1 (load) | CLAUDE.md not found (project or global) | Proceed with global defaults; flag the missing file in the report |
-| Stage 2 (analyze) | Session history not accessible | Fall back to the user's verbal summary as input to steps 2-4 |
+| Stage 2 (analyze) | Session history not accessible | Fall back to the user's verbal summary as input to steps 3–8 |
 | Stage 2 (analyze) | No friction events found | Exit with "No patterns found. ✅" — do not fabricate findings |
+| Stage 2 (analyze) | MEMORY.md 스캔 실패 (파일 접근 불가) | 모든 finding을 신규 패턴으로 처리 (repeat=false). 스캔 실패를 report에 명시 |
+| Stage 2 (analyze) | MEMORY.md 비어있음 | 정상 처리 — 모든 finding이 신규 패턴 |
+| Stage 2 (analyze) | tracer/analyst 호출 실패 | 수동 분석으로 fallback. 에이전트 실패를 report에 명시. root cause 품질 저하 경고 |
 | Stage 3 (report) | User rejects all findings | Capture the rejection itself as a feedback signal for future retrospects |
 | Stage 4 (execute) | MEMORY.md write fails | Report the path error; never silently drop the feedback |
 | Stage 4 (execute) | GitHub issue creation fails | Fall back to saving a note in `.omc/plans/` for later manual creation |
