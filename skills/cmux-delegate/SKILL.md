@@ -43,6 +43,7 @@ description: Delegate a task to an independent Claude Code session in a new cmux
 | `--account` | (기본 계정) | Claude 계정 프로필 (예: `claude-2` → `CLAUDE_CONFIG_DIR=~/.claude-2`) |
 | `--session` | (신규 생성) | 기존 워크스페이스에 전달 (이름 또는 workspace ref) |
 | `--distribute` | false | 독립 항목별 병렬 분산 실행 |
+| `--permission-mode` | `auto` | Claude 권한 모드 (acceptEdits/auto/bypassPermissions/default/dontAsk/plan) |
 
 ## Process
 
@@ -58,6 +59,7 @@ budget = args["max-budget-usd"] || ""
 account = args.account || ""
 session = args.session || ""
 distribute = args.distribute || false
+permission_mode = args["permission-mode"] || "auto"
 task = args.task (remaining text after flags)
 short_task = task[:30], sanitized to [a-zA-Z0-9가-힣 -] only (for cmux workspace name)
 timestamp = epoch seconds + PID (e.g., 1744163800-12345) to avoid collision
@@ -188,7 +190,7 @@ trap 'rm -f "$SCRIPT_FILE"' EXIT
 
 cat "$PROMPT_FILE" | {claude_env} claude \
   --model {model} \
-  --permission-mode auto \
+  --permission-mode {permission_mode} \
   {budget_flag}
 
 # Notify on completion
