@@ -5,7 +5,8 @@ description: >
   by scanning the .jsonl files Claude Code persists automatically. Interactive
   interview chooses recovery scope and layout. Use this when sessions died and
   you need them back, NOT for restoring an intentionally saved layout.
-  Triggers on "터졌다", "크래시", "복구", "살려야", "recover cmux", "crash recovery", "cmux session recovery".
+  If the request mentions "snapshot" or "json" as the source, prefer cmux-resume-sessions instead.
+  Triggers on "터졌다", "크래시 복구", "크래시 복원", "전원 꺼짐 복구", "OOM 복구", "세션 살려야", "recover cmux", "crash recovery", "power loss recovery", "cmux session recovery".
 ---
 
 # Recover Sessions (cmux)

@@ -3,7 +3,8 @@ name: cmux-resume-sessions
 description: >
   Restore cmux workspaces from a JSON snapshot saved by cmux-save-sessions.
   Use this when you want to rehydrate an intentionally saved layout, NOT after a crash.
-  Triggers on "resume sessions", "session resume", "cmux resume", "restore from snapshot", "rehydrate sessions".
+  If the request mentions "snapshot" or "json" alongside a crash word, still prefer this skill.
+  Triggers on "resume sessions", "session resume", "session restore", "restore sessions", "cmux resume", "restore from snapshot", "rehydrate sessions", "세션 복원", "스냅샷 복구", "스냅샷 복원".
 ---
 
 # cmux Resume Sessions
