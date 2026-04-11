@@ -1,12 +1,20 @@
 ---
 name: cmux-resume-sessions
 description: >
-  Restore cmux workspaces from a JSON snapshot.
-  Uses snapshots saved by cmux-save-sessions as input.
-  Triggers on "resume sessions", "session restore", "session resume", "cmux resume", "restore sessions".
+  Restore cmux workspaces from a JSON snapshot saved by cmux-save-sessions.
+  Use this when you want to rehydrate an intentionally saved layout with NO crash context.
+  Crash routing override: if the request mentions a crash, power loss, OOM, or "살려야",
+  route to cmux-recover-sessions instead — even when the user also mentions a snapshot,
+  because the snapshot may be stale and .jsonl scanning reflects the real latest state.
+  Triggers on "resume sessions", "session resume", "session restore", "restore sessions", "cmux resume", "restore from snapshot", "rehydrate sessions", "세션 복원", "스냅샷 복구", "스냅샷 복원".
 ---
 
 # cmux Resume Sessions
+
+> ⚠️ **Wrong skill?** If your sessions died from a crash / power loss / OOM kill,
+> use **`cmux-recover-sessions`** instead. That skill scans `.jsonl` files on
+> disk and finds sessions you never explicitly saved. Resume only works on a
+> JSON snapshot you produced earlier with `cmux-save-sessions`.
 
 ## Overview
 
@@ -14,8 +22,8 @@ Restores cmux workspaces from a JSON snapshot saved by `cmux-save-sessions`.
 Restores workspace structure (name, cwd) and continues Claude Code conversations automatically.
 
 > **Role separation**:
-> - `cmux-resume-sessions`: Intentional restore from JSON snapshot (file-based)
-> - `cmux-recover-sessions`: Post-crash/power-loss recovery from tmux sessions (process-based)
+> - `cmux-resume-sessions` (this skill): Intentional restore from a JSON snapshot you saved on purpose (file-based)
+> - `cmux-recover-sessions`: Post-crash/power-loss recovery from `.jsonl` files Claude Code persists automatically (process-based)
 
 ## The Iron Law
 
