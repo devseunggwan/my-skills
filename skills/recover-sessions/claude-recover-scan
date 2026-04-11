@@ -71,10 +71,19 @@ SCHEDULE_KEYWORDS = [
 
 MIN_USER_MSGS = 4
 TAIL_SIZE = 15
-VERBOSE = os.environ.get("VERBOSE") == "1"
+# Namespaced env var so this cannot accidentally trip on a generic
+# VERBOSE setting that another tool in the shell might be using. The
+# legacy name is still honored for a release or two.
+VERBOSE = (
+    os.environ.get("PRAXIS_RECOVER_VERBOSE") == "1"
+    or os.environ.get("VERBOSE") == "1"
+)
 
 results = []
 filter_counts = {
+    "subagent": 0,
+    "mtime": 0,
+    "tiny": 0,
     "exited": 0,
     "short": 0,
     "no_msg": 0,
@@ -82,6 +91,7 @@ filter_counts = {
     "teammate": 0,
     "command": 0,
 }
+total_discovered = 0
 total_scanned = 0
 
 for base, home_label in config_homes.items():
@@ -95,18 +105,23 @@ for base, home_label in config_homes.items():
             if not fname.endswith(".jsonl"):
                 continue
             fpath = os.path.join(full_dir, fname)
+            total_discovered += 1
 
             if "/subagents/" in fpath:
+                filter_counts["subagent"] += 1
                 continue
 
             mtime = datetime.datetime.fromtimestamp(os.path.getmtime(fpath))
             if mtime < cutoff:
+                filter_counts["mtime"] += 1
                 continue
             if cutoff_end and mtime >= cutoff_end:
+                filter_counts["mtime"] += 1
                 continue
 
             size = os.path.getsize(fpath)
             if size < 10240:
+                filter_counts["tiny"] += 1
                 continue
 
             total_scanned += 1
@@ -212,11 +227,16 @@ if VERBOSE:
     total_filtered = sum(filter_counts.values())
     surviving = len(results)
     print("", file=_sys.stderr)
-    print(f"Scanned:   {total_scanned} files", file=_sys.stderr)
-    print(f"Filtered:  {total_filtered}", file=_sys.stderr)
+    print(f"Discovered: {total_discovered} files", file=_sys.stderr)
+    print(f"Scanned:    {total_scanned} files (after prefilter)", file=_sys.stderr)
+    print(f"Filtered:   {total_filtered}", file=_sys.stderr)
+    # Pre-scan filters (size, subagent, mtime) run before the body loop.
+    for k in ("subagent", "mtime", "tiny"):
+        print(f"  {k:<10} {filter_counts[k]}", file=_sys.stderr)
+    # Body-scan filters run after the file has been read fully.
     for k in ("exited", "short", "no_msg", "schedule", "teammate", "command"):
         print(f"  {k:<10} {filter_counts[k]}", file=_sys.stderr)
-    print(f"Surviving: {surviving}", file=_sys.stderr)
+    print(f"Surviving:  {surviving}", file=_sys.stderr)
 
 for mod_time, size_h, sid, cwd, msg, hlabel in results:
     print(f"{mod_time}|{size_h}|{sid}|{cwd}|{msg}|{hlabel}")
