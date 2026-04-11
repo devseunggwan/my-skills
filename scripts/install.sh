@@ -60,6 +60,18 @@ missing=0
 refused=0
 overwritten=0
 
+# Small helper: resolve realpath of a path (or empty string on failure).
+# We shell out to python3 because BSD and GNU realpath accept different
+# flag sets and we don't want to hard-code one.
+resolve_realpath() {
+  /usr/bin/env python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null || true
+}
+
+src_real_cache() {
+  local p="$1"
+  resolve_realpath "$p"
+}
+
 for script in "${CLI_SCRIPTS[@]}"; do
   src="$REPO_ROOT/$script"
   name=$(basename "$script")
@@ -71,10 +83,18 @@ for script in "${CLI_SCRIPTS[@]}"; do
     continue
   fi
 
-  if [[ -L "$dst" ]] && [[ "$(readlink "$dst")" == "$src" ]]; then
-    echo "OK       $name"
-    already=$((already + 1))
-    continue
+  # Realpath-based equality: a symlink that resolves to the same
+  # canonical source (relative path, intermediate symlink, etc.) is
+  # already correct. This keeps re-runs idempotent even when an earlier
+  # install wrote the link via a slightly different path spelling.
+  if [[ -L "$dst" ]]; then
+    src_real=$(resolve_realpath "$src")
+    dst_real=$(resolve_realpath "$dst")
+    if [[ -n "$src_real" && -n "$dst_real" && "$src_real" == "$dst_real" ]]; then
+      echo "OK       $name"
+      already=$((already + 1))
+      continue
+    fi
   fi
 
   # Destination exists but is not the canonical symlink.
@@ -89,13 +109,51 @@ for script in "${CLI_SCRIPTS[@]}"; do
       refused=$((refused + 1))
       continue
     fi
+
+    # Backup FIRST so we never lose the old binary even if the new
+    # symlink write fails later. For symlinks we preserve the link
+    # itself (not its target) so recovery keeps its original semantics.
     backup="$dst.bak.$(date +%s)"
-    mv "$dst" "$backup"
+    if [[ -L "$dst" ]]; then
+      ln -s "$(readlink "$dst")" "$backup"
+    else
+      cp -a "$dst" "$backup"
+    fi
+
+    # Stage the new link in a sibling temp path. Installing via a
+    # temp path + rename(2) means the swap is atomic: either the old
+    # dst is still there or the new one is, never a gap.
+    tmp="$dst.new.$$"
+    if ! ln -s "$src" "$tmp"; then
+      echo "ERROR    $name failed to stage new symlink; dst unchanged"
+      rm -f "$backup"
+      exit 1
+    fi
+    if ! mv -f "$tmp" "$dst"; then
+      echo "ERROR    $name atomic rename failed; dst unchanged"
+      rm -f "$tmp" "$backup"
+      exit 1
+    fi
+
     echo "BACKUP   $name -> $backup"
+    echo "LINK     $name -> $src"
     overwritten=$((overwritten + 1))
+    linked=$((linked + 1))
+    continue
   fi
 
-  ln -s "$src" "$dst"
+  # Fresh install: create the symlink via the same atomic pattern so
+  # failure modes stay consistent.
+  tmp="$dst.new.$$"
+  if ! ln -s "$src" "$tmp"; then
+    echo "ERROR    $name failed to create symlink"
+    exit 1
+  fi
+  if ! mv -f "$tmp" "$dst"; then
+    echo "ERROR    $name atomic rename failed"
+    rm -f "$tmp"
+    exit 1
+  fi
   echo "LINK     $name -> $src"
   linked=$((linked + 1))
 done
