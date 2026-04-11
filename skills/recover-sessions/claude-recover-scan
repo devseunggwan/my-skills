@@ -71,8 +71,18 @@ SCHEDULE_KEYWORDS = [
 
 MIN_USER_MSGS = 4
 TAIL_SIZE = 15
+VERBOSE = os.environ.get("VERBOSE") == "1"
 
 results = []
+filter_counts = {
+    "exited": 0,
+    "short": 0,
+    "no_msg": 0,
+    "schedule": 0,
+    "teammate": 0,
+    "command": 0,
+}
+total_scanned = 0
 
 for base, home_label in config_homes.items():
     if not os.path.isdir(base):
@@ -99,6 +109,7 @@ for base, home_label in config_homes.items():
             if size < 10240:
                 continue
 
+            total_scanned += 1
             size_h = f"{size/1048576:.1f}M" if size > 1048576 else f"{size//1024}K"
             mod_time = mtime.strftime("%m/%d %H:%M")
 
@@ -162,10 +173,13 @@ for base, home_label in config_homes.items():
 
             # ── Filtering ──
             if is_teammate:
+                filter_counts["teammate"] += 1
                 continue
             if is_command and user_count <= 5:
+                filter_counts["command"] += 1
                 continue
             if user_count < MIN_USER_MSGS:
+                filter_counts["short"] += 1
                 continue
 
             if first_real_msg:
@@ -179,16 +193,30 @@ for base, home_label in config_homes.items():
                             is_schedule = True
                             break
             if is_schedule:
+                filter_counts["schedule"] += 1
                 continue
             if was_exited:
+                filter_counts["exited"] += 1
                 continue
             if not first_real_msg:
+                filter_counts["no_msg"] += 1
                 continue
 
             cwd = cwd or "/tmp"
             results.append((mod_time, size_h, session_id, cwd, first_real_msg, home_label))
 
 results.sort(key=lambda x: x[0], reverse=True)
+
+if VERBOSE:
+    import sys as _sys
+    total_filtered = sum(filter_counts.values())
+    surviving = len(results)
+    print("", file=_sys.stderr)
+    print(f"Scanned:   {total_scanned} files", file=_sys.stderr)
+    print(f"Filtered:  {total_filtered}", file=_sys.stderr)
+    for k in ("exited", "short", "no_msg", "schedule", "teammate", "command"):
+        print(f"  {k:<10} {filter_counts[k]}", file=_sys.stderr)
+    print(f"Surviving: {surviving}", file=_sys.stderr)
 
 for mod_time, size_h, sid, cwd, msg, hlabel in results:
     print(f"{mod_time}|{size_h}|{sid}|{cwd}|{msg}|{hlabel}")
