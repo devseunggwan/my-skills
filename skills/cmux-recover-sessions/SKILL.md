@@ -5,7 +5,11 @@ description: >
   by scanning the .jsonl files Claude Code persists automatically. Interactive
   interview chooses recovery scope and layout. Use this when sessions died and
   you need them back, NOT for restoring an intentionally saved layout.
-  If the request mentions "snapshot" or "json" as the source, prefer cmux-resume-sessions instead.
+  Priority: crash context wins. If the request mentions a crash/power loss/OOM,
+  prefer this skill even when the user also mentions a snapshot — the snapshot
+  may be stale, and .jsonl scan reflects the real final state.
+  Only defer to cmux-resume-sessions when there is NO crash context and the user
+  explicitly wants to rehydrate a saved snapshot.
   Triggers on "터졌다", "크래시 복구", "크래시 복원", "전원 꺼짐 복구", "OOM 복구", "세션 살려야", "recover cmux", "crash recovery", "power loss recovery", "cmux session recovery".
 ---
 
