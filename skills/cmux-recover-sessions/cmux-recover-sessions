@@ -288,4 +288,9 @@ if [[ "$MODE" != "plain" ]]; then
   echo "  Cmd+1-9              jump by number"
   echo "  Cmd+Shift+]          next workspace"
   echo "  Cmd+Shift+[          previous workspace"
+  echo ""
+  echo "Tip: Claude Code renders resumed sessions from the first message,"
+  echo "     so a workspace will look 'reverted' on open. The full context"
+  echo "     is loaded — scroll to bottom or ask the model"
+  echo "     'what was the last thing we worked on?' to see the real state."
 fi

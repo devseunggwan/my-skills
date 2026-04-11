@@ -64,6 +64,13 @@ bash "$(dirname "$0")/cmux-resume-sessions" [snapshot-file]
 - Previously running commands
 - Session runtime state (git status, open editors, etc.)
 
+> ⚠️ **Resumed sessions render from the first message.** Claude Code re-renders
+> a resumed conversation starting at the oldest message, so a workspace will
+> *look* like it reverted to its earliest state. The model context is fully
+> loaded — to confirm the actual final state in any restored workspace:
+> - scroll the viewport to the bottom, or
+> - ask the model directly: *"what was the last thing we worked on?"*
+
 ## Output Example
 
 ```

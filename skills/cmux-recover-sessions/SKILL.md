@@ -167,6 +167,13 @@ cmux workspaces are now open. Navigate with:
   Cmd+1-9         jump to workspace by number
   Cmd+Shift+]     next workspace
   Cmd+Shift+[     previous workspace
+
+⚠️ Note: Claude Code re-renders a resumed conversation from the first
+   message, so the visible viewport will look like the session "reverted
+   to its earliest state". The model context is fully loaded — to confirm
+   the actual last state in any restored workspace:
+     - scroll the viewport to the bottom, or
+     - ask the model directly: "what was the last thing we worked on?"
 ```
 
 ## Script Reference
