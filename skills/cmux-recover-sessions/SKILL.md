@@ -172,13 +172,12 @@ cmux workspaces are now open. Navigate with:
    message, so the visible viewport looks like the session "reverted to
    its earliest state".
    
-   Whether the full context actually loaded depends on which command ran:
-     - claude --resume <session-id> locks onto that exact session
-     - claude --continue (the fallback when the snapshot lacks a session id)
-       attaches to the cwd's most recent conversation, which may be a
-       different chain entirely
-   
-   Always confirm state in each restored workspace before trusting it:
+   Recovery always launches each workspace with `claude --resume <uuid>`,
+   pointing at the exact .jsonl discovered on disk. In most cases that
+   loads the intended transcript, but it is not a guarantee — a bad or
+   stale session id, a partial flush at crash time, or a truncated tail
+   can all surface as "wrong" context. Always confirm the state in each
+   restored workspace before trusting it:
      - scroll the viewport to the bottom, or
      - ask the model directly: "what was the last thing we worked on?"
 ```
