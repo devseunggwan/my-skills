@@ -290,7 +290,10 @@ if [[ "$MODE" != "plain" ]]; then
   echo "  Cmd+Shift+[          previous workspace"
   echo ""
   echo "Tip: Claude Code renders resumed sessions from the first message,"
-  echo "     so a workspace will look 'reverted' on open. The full context"
-  echo "     is loaded — scroll to bottom or ask the model"
-  echo "     'what was the last thing we worked on?' to see the real state."
+  echo "     so a workspace will look 'reverted' on open."
+  echo "     --resume <session-id> locks onto the exact session; --continue"
+  echo "     (fallback when no session id is available) attaches to the"
+  echo "     cwd's most recent conversation, which may be a different chain."
+  echo "     Always confirm each workspace before trusting it: scroll to"
+  echo "     the bottom, or ask 'what was the last thing we worked on?'"
 fi

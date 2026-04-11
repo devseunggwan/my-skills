@@ -169,9 +169,16 @@ cmux workspaces are now open. Navigate with:
   Cmd+Shift+[     previous workspace
 
 ⚠️ Note: Claude Code re-renders a resumed conversation from the first
-   message, so the visible viewport will look like the session "reverted
-   to its earliest state". The model context is fully loaded — to confirm
-   the actual last state in any restored workspace:
+   message, so the visible viewport looks like the session "reverted to
+   its earliest state".
+   
+   Whether the full context actually loaded depends on which command ran:
+     - claude --resume <session-id> locks onto that exact session
+     - claude --continue (the fallback when the snapshot lacks a session id)
+       attaches to the cwd's most recent conversation, which may be a
+       different chain entirely
+   
+   Always confirm state in each restored workspace before trusting it:
      - scroll the viewport to the bottom, or
      - ask the model directly: "what was the last thing we worked on?"
 ```

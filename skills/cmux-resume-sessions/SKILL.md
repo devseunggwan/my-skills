@@ -66,8 +66,17 @@ bash "$(dirname "$0")/cmux-resume-sessions" [snapshot-file]
 
 > ⚠️ **Resumed sessions render from the first message.** Claude Code re-renders
 > a resumed conversation starting at the oldest message, so a workspace will
-> *look* like it reverted to its earliest state. The model context is fully
-> loaded — to confirm the actual final state in any restored workspace:
+> *look* like it reverted to its earliest state.
+>
+> Whether the original context is actually loaded depends on which command
+> fires for that workspace:
+> - `claude --resume <session-id>` — yes, loads exactly that session
+> - `claude --continue` (the fallback when the snapshot omitted a session id)
+>   — attaches to the cwd's most recent conversation, which may be a
+>   completely different chain (this is the same pitfall the
+>   *Rationalization Prevention* section at the bottom warns about).
+>
+> Always verify each restored workspace before trusting it:
 > - scroll the viewport to the bottom, or
 > - ask the model directly: *"what was the last thing we worked on?"*
 
