@@ -38,9 +38,9 @@ Never pipe worker output directly into the orchestrator process — the master c
      ┌─────────┼─────────┐    │
      ▼         ▼         ▼    ▼
   [ws:1]    [ws:2]    [ws:3]  results/
-  claude    claude    claude   ├─ w1.jsonl
-  --sonnet  --haiku   --opus   ├─ w2.jsonl
-  task-1    task-2    task-3   └─ w3.jsonl
+  claude    codex     gemini   ├─ w1.jsonl
+  :sonnet   (default) (default)├─ w2.jsonl
+  review    implement analyze  └─ w3.jsonl
 ```
 
 ## When to Use
@@ -74,23 +74,43 @@ Or a structured task file:
 
 ## Process
 
-### Step 1: Parse Tasks + Route Models
+### Step 1: Parse Tasks + Route Provider & Model
 
-For each task, determine complexity and assign model:
+Two-phase routing (from CLAUDE.md Provider Routing):
+
+**Phase 1 — Task type → Provider:**
 
 ```
-Task → Complexity Router → Model Assignment
-  "code review"     → medium  → sonnet
-  "implement"       → medium  → sonnet
-  "status check"    → low     → haiku
-  "architecture"    → high    → opus
+Task → Provider Router
+  "implement", "fix", "refactor", "code generation"  → codex
+  "search", "analyze", "summarize", "large context"   → gemini
+  "review", "design", "architecture", "security"      → claude
+  "status", "check", "list"                           → claude
+  Default                                              → claude
 ```
 
-**Routing rules (from CLAUDE.md Model Routing Rules):**
-- `find`, `search`, `list`, `status`, `check` → **haiku**
-- `implement`, `fix`, `test`, `review`, `refactor` → **sonnet**
-- `architect`, `design`, `security`, `incident`, `debug` → **opus**
-- Default: **sonnet**
+**Phase 2 — Provider + Complexity → Model:**
+
+```
+claude + low    → haiku     (find, search, list, status, check)
+claude + medium → sonnet    (review, test, refactor)
+claude + high   → opus      (architect, design, security, debug)
+codex           → default   (or explicit: codex:o3)
+gemini          → default   (or explicit: gemini:flash)
+```
+
+**Pre-flight availability check:**
+
+```bash
+for provider in codex gemini; do
+  command -v "$provider" >/dev/null 2>&1 || {
+    echo "⚠ ${provider} CLI not found — tasks will fall back to claude:sonnet"
+    FALLBACK["$provider"]=true
+  }
+done
+```
+
+If a provider is unavailable, tasks assigned to it fall back to `claude:sonnet` with a warning in the dispatch plan.
 
 Present the dispatch plan and ask for confirmation:
 
@@ -99,12 +119,12 @@ Present the dispatch plan and ask for confirmation:
  Dispatch Plan
 ═══════════════════════════════════════════════
 
- #  Task                          Model    Budget
- 1  PR #42 code review             sonnet   $0.50
- 2  issue #100 implementation     sonnet   $1.00
- 3  issue #55 status check        haiku    $0.10
+ #  Task                          Provider  Model      Budget
+ 1  PR #42 code review             claude    sonnet     $0.50
+ 2  issue #100 implementation     codex     (default)  $1.00
+ 3  codebase search + analysis    gemini    (default)  $0.30
 
- Total budget: $1.60
+ Total budget: $1.80
  Max concurrent workers: 3
 
  Proceed? (y/n)
@@ -115,7 +135,7 @@ Present the dispatch plan and ask for confirmation:
 
 ```bash
 ORCH_DIR="/tmp/cmux-orchestrator-$(date +%s)"
-mkdir -p "$ORCH_DIR/logs" "$ORCH_DIR/results"
+mkdir -p "$ORCH_DIR/logs" "$ORCH_DIR/results" "$ORCH_DIR/prompts"
 ```
 
 Create state files:
@@ -128,32 +148,55 @@ Create state files:
 
 ### Step 3: Dispatch Workers
 
-For each task, create a cmux workspace:
+For each task, create a cmux workspace with provider-specific CLI invocation:
 
 ```bash
 dispatch_worker() {
-  local task_id="$1" description="$2" model="$3" cwd="$4" budget="$5"
+  local task_id="$1" description="$2" provider="$3" model="$4" cwd="$5" budget="$6"
   local log_file="$ORCH_DIR/logs/${task_id}.jsonl"
+  local prompt_file="$ORCH_DIR/prompts/${task_id}.md"
 
-  local cmd="claude -p '${description}' \
-    --output-format stream-json --verbose \
-    --permission-mode auto \
-    --model ${model} \
-    --max-budget-usd ${budget} \
-    2>&1 | tee ${log_file}; \
-    echo '===WORKER_DONE===' >> ${log_file}"
+  # Write prompt to file (avoid shell escaping — file-based delivery)
+  echo "${description}" > "$prompt_file"
+
+  # Construct provider-specific command (from CLAUDE.md Provider CLI Spec)
+  local cmd
+  case "$provider" in
+    claude)
+      cmd="cat '${prompt_file}' | claude \
+        --output-format stream-json --verbose \
+        --permission-mode auto \
+        --model ${model} \
+        ${budget:+--max-budget-usd ${budget}} \
+        2>&1 | tee ${log_file}; \
+        echo '===WORKER_DONE===' >> ${log_file}"
+      ;;
+    codex)
+      cmd="cat '${prompt_file}' | codex exec \
+        ${model:+-m ${model}} \
+        2>&1 | tee ${log_file}; \
+        echo '===WORKER_DONE===' >> ${log_file}"
+      ;;
+    gemini)
+      cmd="gemini -p \"\$(cat '${prompt_file}')\" \
+        --approval-mode yolo \
+        ${model:+-m ${model}} \
+        2>&1 | tee ${log_file}; \
+        echo '===WORKER_DONE===' >> ${log_file}"
+      ;;
+  esac
 
   local raw=$(cmux new-workspace --cwd "$cwd" --command "$cmd")
   local ws=$(echo "$raw" | sed 's/^OK //')
 
-  cmux rename-workspace --workspace "$ws" "[w${task_id}] ${description:0:25}"
+  cmux rename-workspace --workspace "$ws" "[w${task_id}:${provider}] ${description:0:20}"
 
   # Get surface ref for monitoring
   local surface=$(cmux list-pane-surfaces --workspace "$ws" 2>/dev/null \
     | grep -oP 'surface:\d+' | head -1)
 
-  # Register worker
-  echo "{\"id\":\"${task_id}\",\"ws\":\"${ws}\",\"surface\":\"${surface}\",\"status\":\"running\",\"log\":\"${log_file}\"}"
+  # Register worker (provider field for result parsing and crash recovery)
+  echo "{\"id\":\"${task_id}\",\"ws\":\"${ws}\",\"surface\":\"${surface}\",\"provider\":\"${provider}\",\"model\":\"${model}\",\"status\":\"running\",\"log\":\"${log_file}\"}"
 }
 ```
 
@@ -218,22 +261,60 @@ collect_result() {
   local log="$ORCH_DIR/logs/${task_id}.jsonl"
   local result_file="$ORCH_DIR/results/${task_id}.json"
 
-  # Extract final result from stream-json
+  # Read provider from workers.json
+  local provider=$(jq -r ".[] | select(.id==\"${task_id}\") | .provider" "$ORCH_DIR/workers.json")
+
+  # Extract result — provider-aware parsing
   python3 -c "
 import json
+
+provider = '${provider}'
+log_file = '${log}'
+task_id = '${task_id}'
+
 result = None
 cost = 0
-with open('${log}') as f:
-    for line in f:
-        try:
-            obj = json.loads(line)
-            if obj.get('type') == 'result':
-                result = obj.get('result', '')
-                cost = obj.get('total_cost_usd', 0)
-        except: pass
-json.dump({'task_id': '${task_id}', 'result': result, 'cost': cost}, 
-          open('${result_file}', 'w'), ensure_ascii=False, indent=2)
-print(f'Task ${task_id}: \${cost:.4f} — {(result or \"\")[:80]}')
+
+if provider == 'claude':
+    with open(log_file) as f:
+        for line in f:
+            try:
+                obj = json.loads(line)
+                if obj.get('type') == 'result':
+                    result = obj.get('result', '')
+                    cost = obj.get('total_cost_usd', 0)
+            except: pass
+
+elif provider == 'codex':
+    # Codex: parse JSONL for last content, or read plain text output
+    with open(log_file) as f:
+        for line in f:
+            try:
+                obj = json.loads(line)
+                if 'content' in obj:
+                    result = obj['content']
+            except:
+                if line.strip() and '===WORKER_DONE===' not in line:
+                    result = line.strip()
+
+elif provider == 'gemini':
+    with open(log_file) as f:
+        for line in f:
+            try:
+                obj = json.loads(line)
+                if obj.get('type') == 'result' or 'result' in obj:
+                    result = obj.get('result', obj.get('text', ''))
+            except:
+                if line.strip() and '===WORKER_DONE===' not in line:
+                    result = line.strip()
+
+json.dump({
+    'task_id': task_id,
+    'provider': provider,
+    'result': result,
+    'cost': cost
+}, open('$ORCH_DIR/results/${task_id}.json', 'w'), ensure_ascii=False, indent=2)
+print(f'Task {task_id} [{provider}]: \${cost:.4f} -- {(result or \"\")[:80]}')
   "
 }
 ```
@@ -245,12 +326,13 @@ print(f'Task ${task_id}: \${cost:.4f} — {(result or \"\")[:80]}')
  Orchestration Complete
 ═══════════════════════════════════════════════
 
- #  Task                    Status     Cost     Result
- 1  PR #42 review            ✅ done    $0.24    "3 issues found, 1 critical..."
- 2  issue #100 impl         ✅ done    $0.45    "Feature implemented, tests pass..."
- 3  issue #55 check         ✅ done    $0.03    "Status: all tasks completed..."
+ #  Task                    Provider  Status     Cost     Result
+ 1  PR #42 review            claude    ✅ done    $0.24    "3 issues found..."
+ 2  issue #100 impl         codex     ✅ done    $0.45    "Feature implemented..."
+ 3  codebase analysis       gemini    ✅ done    $0.03    "Architecture uses..."
 
  Total: 3 tasks, 0 failed, $0.72 total cost
+ Providers: claude×1, codex×1, gemini×1
  Duration: 4m 32s
 ═══════════════════════════════════════════════
 ```
@@ -270,16 +352,19 @@ recover_orchestrator() {
   local orch_dir="$1"
 
   # Find worker workspaces still alive
+  # Provider is encoded in workspace name: [w{id}:{provider}]
+  # If workers.json survives, provider is also recoverable from disk
   cmux list-workspaces 2>/dev/null | grep '\[w' | while read line; do
     local ws=$(echo "$line" | grep -oP 'workspace:\d+')
+    local provider=$(echo "$line" | grep -oP '(?<=:)(claude|codex|gemini)' || echo "claude")
     local screen=$(cmux read-screen --workspace "$ws" --lines 3 2>/dev/null)
 
     if echo "$screen" | grep -q "===WORKER_DONE==="; then
-      echo "COMPLETED: $ws"
+      echo "COMPLETED [$provider]: $ws"
     elif echo "$screen" | grep -q "❯"; then
-      echo "IDLE: $ws (may need re-dispatch)"
+      echo "IDLE [$provider]: $ws (may need re-dispatch)"
     else
-      echo "RUNNING: $ws"
+      echo "RUNNING [$provider]: $ws"
     fi
   done
 }
@@ -291,15 +376,17 @@ Chain turbo-setup → execute → turbo-completion per worker:
 
 ```bash
 # Each worker runs the full lifecycle
+# Full pipeline always uses claude (turbo-* skills require Claude Code)
+# Provider routing applies only to standalone task dispatch (Step 3)
 full_pipeline_cmd() {
   local task="$1" model="$2" budget="$3"
   echo "claude -p '
     Phase 1: Run /turbo-setup for: ${task}
-    Phase 2: Implement the task
+    Phase 2: Implement the task (use /cmux-delegate --model codex if pure implementation)
     Phase 3: Run /turbo-completion
   ' --output-format stream-json --verbose \
     --permission-mode auto \
-    --model ${model} \
+    --model ${model:-sonnet} \
     --max-budget-usd ${budget}"
 }
 ```
@@ -309,6 +396,7 @@ full_pipeline_cmd() {
 | Excuse | Reality |
 |--------|---------|
 | "Just run workers in-process, it's simpler" | Master crash = all workers lost. File-based state is the only safe path. |
+| "Skip provider routing, use claude for everything" | Codex generates code faster. Gemini handles large context better. Route by task type. |
 | "Skip model routing, use opus for all workers" | Wastes 80% of budget on tasks haiku can do. Route by complexity. |
 | "Don't need a poll loop, workers will notify on done" | Notifications get lost on crash. Polling is boring and reliable. |
 | "Skip result collection, I'll read logs manually" | Results scattered across N log files. Collect into `results/` for downstream use. |
@@ -334,5 +422,7 @@ full_pipeline_cmd() {
 
 **Environment:**
 - cmux must be running (`cmux ping`)
-- Claude Code CLI available (`claude -p`)
+- Claude Code CLI available (`claude -p`) — required
+- Codex CLI available (`codex exec`) — optional, for code generation tasks
+- Gemini CLI available (`gemini -p`) — optional, for analysis tasks
 - `/tmp/cmux-orchestrator-*` for state files
