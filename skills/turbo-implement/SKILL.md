@@ -82,6 +82,7 @@ How should this be implemented?
 2. Ralph — persistence loop until all acceptance criteria pass
 3. Autopilot — full autonomous: plan → implement → QA → validate
 4. Guided — implement step-by-step with verification after each change
+5. Codex — delegate implementation to codex CLI via cmux-delegate
 ```
 
 **Mode routing heuristics (suggest but don't force):**
@@ -92,6 +93,7 @@ How should this be implemented?
 | Plan file exists with implementation steps | Autopilot (plan-driven execution) |
 | Simple task (1-2 files, clear scope) | Guided |
 | No spec, no plan, complex task | Manual (needs more planning first) |
+| Pure implementation + codex CLI available | Codex (fast code generation via external CLI) |
 
 ### Step 3: Execute
 
@@ -141,6 +143,36 @@ Interactive step-by-step implementation:
    - Show results, ask to proceed
 3. After all steps: run full verification
 
+#### Mode: Codex
+
+Delegate implementation to Codex CLI via cmux-delegate:
+
+**Pre-flight:** `command -v codex` — if unavailable, hide this mode option.
+
+1. Generate implementation prompt from spec/issue body:
+   ```
+   Task: Implement issue #<N> — <title>
+   Context: <spec body or issue body>
+   Working directory: <WORKTREE_PATH>
+   Instructions: Implement the changes, run tests after each change.
+   ```
+
+2. Invoke cmux-delegate with codex provider:
+   ```
+   /cmux-delegate "{implementation prompt}" --model codex --cwd {WORKTREE_PATH}
+   ```
+
+3. Monitor workspace for completion (cmux notify or manual check)
+
+4. On completion: pull changes into worktree, run verification (Stage 1 from turbo-completion)
+   - If verification passes → chain to delivery (Step 4)
+   - If verification fails → fall back to Guided mode for manual fix, with codex output as context
+
+**Limitations:**
+- Codex runs in an isolated workspace — may not have full project context
+- Budget control not available (codex CLI has no `--max-budget-usd` equivalent)
+- Best for self-contained implementation tasks with clear specs
+
 ### Step 4: Chain to Delivery
 
 After implementation completes (any mode except Manual):
@@ -162,6 +194,8 @@ If "Not yet": show `git diff --stat` and wait.
 | No issue number in branch | Ask user for issue reference |
 | Spec/plan file not found | Proceed without — suggest Manual or Guided mode |
 | Ralph/autopilot not available | Fall back to Guided mode |
+| Codex CLI not available | Hide Codex mode option, suggest Ralph or Guided instead |
+| Codex mode fails or produces bad output | Fall back to Guided mode with codex output as context |
 | Implementation fails mid-way | Save progress, report status, suggest `/debug` |
 | Tests fail after implementation | Invoke `debug` skill for root cause analysis |
 
@@ -173,6 +207,7 @@ If "Not yet": show `git diff --stat` and wait.
 | "Ralph is always better, pick it by default" | Ralph without acceptance criteria loops without progress. Use it only when criteria exist. |
 | "I'll chain to turbo-completion later" | Later never comes. Chain immediately or the worktree accumulates stale changes. |
 | "Autopilot on a no-spec task" | Autopilot without a spec invents scope. Pick Guided or write a spec first. |
+| "Codex for everything, it's faster" | Codex lacks project context and can't run turbo-* skills. Use for pure implementation only. |
 | "Skip verification, tests will run in CI" | CI finds the failure 10 minutes later, across a PR review cycle. Run locally first. |
 
 ## Pipeline Visualization
@@ -191,6 +226,7 @@ If "Not yet": show `git diff --stat` and wait.
                     · ralph (loop)
                     · autopilot (autonomous)
                     · guided (interactive)
+                    · codex (external CLI)
 ```
 
 ## Chaining Interface

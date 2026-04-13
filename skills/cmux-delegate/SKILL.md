@@ -37,7 +37,7 @@ description: Delegate a task to an independent Claude Code session in a new cmux
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `<task>` | (required) | 위임할 작업 설명 |
-| `--model` | `sonnet` | Claude 모델 (opus/sonnet/haiku) |
+| `--model` | `sonnet` | Provider:model notation. `opus`/`sonnet`/`haiku` = claude. Also supports `codex`, `codex:o3`, `gemini`, `gemini:flash`. See CLAUDE.md Provider Routing. |
 | `--cwd` | current dir | 새 세션의 작업 디렉토리 |
 | `--max-budget-usd` | (none) | 최대 예산 한도 |
 | `--account` | (기본 계정) | Claude 계정 프로필 (예: `claude-2` → `CLAUDE_CONFIG_DIR=~/.claude-2`) |
@@ -63,6 +63,26 @@ permission_mode = args["permission-mode"] || "auto"
 task = args.task (remaining text after flags)
 short_task = task[:30], sanitized to [a-zA-Z0-9가-힣 -] only (for cmux workspace name)
 timestamp = epoch seconds + PID (e.g., 1744163800-12345) to avoid collision
+
+# Provider resolution (from CLAUDE.md Provider Resolution Logic)
+if model matches /^(codex|gemini)(?::(.+))?$/:
+  provider = match[1]           # "codex" or "gemini"
+  sub_model = match[2] || ""    # "" or "o3" or "flash" (colon stripped)
+elif model in ["opus", "sonnet", "haiku"]:
+  provider = "claude"
+  sub_model = model
+elif model matches /^claude:.+$/:
+  provider = "claude"
+  sub_model = split(":")[1]
+else:
+  provider = "claude"
+  sub_model = model
+
+# Pre-flight: verify provider CLI is available
+if ! command -v "$provider" &>/dev/null:
+  warn "⚠ ${provider} CLI not found, falling back to claude:sonnet"
+  provider = "claude"
+  sub_model = "sonnet"
 ```
 
 ### Step 1.5: Session Resolution
@@ -171,10 +191,11 @@ Report results in Korean.
 1. 프롬프트를 섹션별로 분리 → 각각 개별 .md 파일 생성
 2. Context 섹션은 모든 분할 파일에 공통 포함
 3. 각 파일에 대해 개별 래퍼 .sh 생성
-4. 모델 라우팅: `--model`이 명시적이면 전체 동일, 없으면 복잡도 기반 자동 배정
-   - 데이터 조회/상태 확인 → haiku
-   - 분석/구현 → sonnet
-   - 설계/보안 → opus
+4. Routing: If `--model` is explicit, apply uniformly. Otherwise, auto-assign by task type (see CLAUDE.md Task-Type Routing):
+   - Code implementation/fix → `codex` (if CLI available) or `claude:sonnet`
+   - Search/analysis/large context → `gemini` (if CLI available) or `claude:sonnet`
+   - Design/security/review → `claude:opus`
+   - Data lookup/status check → `claude:haiku`
 
 ### Step 4: Generate Wrapper Script
 
@@ -188,17 +209,32 @@ SCRIPT_FILE="/tmp/cmux-delegate-{timestamp}.sh"
 # Cleanup: .sh만 삭제. .md는 보존 (다른 워크스페이스가 참조할 수 있음)
 trap 'rm -f "$SCRIPT_FILE"' EXIT
 
-cat "$PROMPT_FILE" | {claude_env} claude \
-  --model {model} \
-  --permission-mode {permission_mode} \
-  {budget_flag}
+# Provider-specific invocation (from CLAUDE.md Provider CLI Spec)
+case "{provider}" in
+  claude)
+    cat "$PROMPT_FILE" | {claude_env} claude \
+      --model {sub_model} \
+      --permission-mode {permission_mode} \
+      {budget_flag}
+    ;;
+  codex)
+    cat "$PROMPT_FILE" | codex exec \
+      {sub_model:+-m {sub_model}}
+    ;;
+  gemini)
+    gemini -p "$(cat "$PROMPT_FILE")" \
+      --approval-mode yolo \
+      {sub_model:+-m {sub_model}}
+    ;;
+esac
 
 # Notify on completion
 cmux notify --title "cmux-delegate" --body "Task completed: {short_task}" 2>/dev/null || true
 ```
 
-`{claude_env}`는 account가 지정된 경우 `CLAUDE_CONFIG_DIR=~/.{account}`로 치환합니다.
-`{budget_flag}`는 budget이 지정된 경우에만 `--max-budget-usd {budget}`로 치환합니다.
+`{provider}` and `{sub_model}` are substituted from the provider resolution result in Step 1.
+`{claude_env}` is substituted with `CLAUDE_CONFIG_DIR=~/.{account}` when account is specified (claude provider only).
+`{budget_flag}` is substituted with `--max-budget-usd {budget}` when budget is specified (claude provider only — codex/gemini do not support budget limits).
 
 **이 파일도 `Write` 도구로 생성합니다.** 단, 파일 내용 자체에 shell 변수(`$PROMPT_FILE` 등)가 포함되므로 이는 의도된 것입니다 — 중요한 것은 사용자 프롬프트가 이 스크립트를 거치지 않는다는 점입니다.
 
@@ -254,7 +290,8 @@ cmux send-key --workspace "$TARGET" Enter
 ```
 Delegated to {WS_REF}
   Task: {short_task}
-  Model: {model}
+  Provider: {provider}
+  Model: {sub_model || "default"}
   Account: {account || "default"}
   Prompt: /tmp/cmux-delegate-{timestamp}.md
   CWD: {cwd}
@@ -266,9 +303,9 @@ cmux에서 {WS_REF} 탭을 확인하세요.
 **distribute 모드:**
 ```
 Distributed to {N} workspaces:
-  | Workspace | Task | Model | Account |
-  |-----------|------|-------|---------|
-  | {ws_ref}  | {item_title} | {model} | {account} |
+  | Workspace | Task | Provider | Model | Account |
+  |-----------|------|----------|-------|---------|
+  | {ws_ref}  | {item_title} | {provider} | {sub_model} | {account} |
   ...
 
 각 cmux 탭에서 진행 상황을 확인하세요.
@@ -301,7 +338,7 @@ cmux에서 {session_name} 탭을 확인하세요.
 ### 단일 세션 (기본)
 
 ```
-사용자: /cmux-delegate "전체 검수" --model opus --account claude-2
+user: /cmux-delegate "full code review" --model claude:opus --account claude-2
   │
   ├── Step 1.6: Account Resolution
   │     └── CLAUDE_CONFIG_DIR=~/.claude-2
