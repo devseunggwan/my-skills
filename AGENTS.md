@@ -140,9 +140,9 @@ Skills parse `--model` using this algorithm:
 ```
 input = "--model" value
 
-if input matches /^(codex|gemini)(:.+)?$/:
+if input matches /^(codex|gemini)(?::(.+))?$/:
   provider = match[1]           # "codex" or "gemini"
-  sub_model = match[2] || ""    # "" or "o3" or "flash"
+  sub_model = match[2] || ""    # "" or "o3" or "flash" (colon stripped)
 elif input in ["opus", "sonnet", "haiku"]:
   provider = "claude"
   sub_model = input

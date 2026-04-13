@@ -65,9 +65,9 @@ short_task = task[:30], sanitized to [a-zA-Z0-9가-힣 -] only (for cmux workspa
 timestamp = epoch seconds + PID (e.g., 1744163800-12345) to avoid collision
 
 # Provider resolution (from CLAUDE.md Provider Resolution Logic)
-if model matches /^(codex|gemini)(:.+)?$/:
+if model matches /^(codex|gemini)(?::(.+))?$/:
   provider = match[1]           # "codex" or "gemini"
-  sub_model = match[2] || ""    # "" or "o3" or "flash"
+  sub_model = match[2] || ""    # "" or "o3" or "flash" (colon stripped)
 elif model in ["opus", "sonnet", "haiku"]:
   provider = "claude"
   sub_model = model
