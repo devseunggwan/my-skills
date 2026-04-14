@@ -320,6 +320,8 @@ If you catch yourself:
 - Skipping tracer/analyst agent calls ("I can analyze this myself")
 - Generating artifacts without verification ("issue created" without showing URL)
 - Creating a new memory file without checking existing entries for overlap (MUST merge into existing when root cause matches)
+- **Proposing MEMORY.md feedback as the only action when the same rule was violated 3+ times** — this ignores memo's proven limits; enforcement mechanisms (skill, hook, rule) MUST be evaluated alongside memory
+- **Proposing MEMORY.md feedback as the only action when the finding is a rule gap (rule absent)** — gaps are not filled by memos; CLAUDE.md draft or skill idea MUST be considered
 
 **ALL of these mean: STOP. Return to Stage 2.**
 
