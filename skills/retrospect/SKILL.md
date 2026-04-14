@@ -163,16 +163,34 @@ You MUST complete each stage before proceeding to the next.
 ```
 ## Retrospect Report — {session_date}
 
-| # | Pattern | Root Cause | Rule | Repeat? | Action Type | Escalation Reason | Priority |
-|---|---------|------------|------|---------|-------------|-------------------|----------|
-| 1 | {pattern} | {root_cause} | {rule_ref} | {Yes(N회)/No} | {action_type} | {reason} | HIGH/MED/LOW |
+| # | Pattern | Root Cause | Rule | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
+|---|---------|------------|------|---------|------------------------|-----------|----------|
+| 1 | {pattern} | {root_cause} | {rule_ref} | {Yes(N회)/No} | {action1} [+ {action2}] | {why_composite_or_single} | HIGH/MED/LOW |
 ...
 
 No patterns found: "This session followed all CLAUDE.md rules. ✅"
 ```
 
-**Action type is auto-assigned by Stage 2 escalation ladder** — not freely chosen.
-The table from Stage 2 step 8 determines the action type. Stage 3 presents the result.
+**Action type baseline comes from Stage 2 escalation ladder**, but Stage 3 MUST explicitly evaluate all four action types per finding and select 1–2 composite actions.
+
+**For each finding, evaluate ALL four action types before selecting:**
+
+| Action Type | When to Choose | Skip If |
+|-------------|---------------|---------|
+| **MEMORY.md feedback** | New pattern (1st occurrence), individual learning, existing rule violated | Pattern already in MEMORY.md (escalate instead) |
+| **GitHub issue** | Systemic fix needed (tool/skill implementation), repeat pattern (1–2×) | One-off mistake, purely local insight |
+| **CLAUDE.md draft** | Explicit rule gap exists, cross-project scope needed | Existing rule already covers this pattern |
+| **Skill idea note** | Repeat pattern needs enforcement mechanism, manual recall is insufficient | Single memo is sufficient, no recurring trigger |
+
+**Selection matrix — three axes to determine compound vs. single action:**
+
+| Axis | Signal → Action |
+|------|----------------|
+| **Repeat count** | 0–1× → `memory`; 2× → `memory + issue`; 3×+ → prefer `skill` or `rule` alongside `memory` |
+| **Scope** | Cross-project impact → `CLAUDE.md draft`; single-project → `MEMORY.md` |
+| **Gap type** | Rule violated → `memory` (reinforce); rule absent → `CLAUDE.md draft` (fill gap); no enforcement → `skill idea` |
+
+**Compound action is the default for HIGH-priority findings.** A single `memory` action is acceptable only when the rationale for skipping all other types is explicitly stated in the `Rationale` column.
 
 **Before approval, explain each action's concrete plan:**
 
@@ -181,11 +199,21 @@ For each finding, present:
 2. **Why this action type** (escalation rationale — e.g., "MEMORY.md에 이미 3회 기록됨")
 3. **How it will be verified** (what check confirms it works)
 
-Example:
+Example (single action — repeat pattern):
 > Finding #2: 워크플로우 위반 (4회차)
-> - **Action**: GitHub issue — `feat(hook): add external-repo commit guard`
-> - **Why**: MEMORY.md에 이미 3회 기록됨. memory는 실패한 대책.
+> - **Proposed Actions**: GitHub issue
+> - **Rationale**: MEMORY.md에 이미 3회 기록됨. memory는 실패한 대책. structural fix 필요.
+> - **What will be created**: issue — `feat(hook): add external-repo commit guard`
 > - **Verify**: issue URL 반환 + `gh issue view` 존재 확인
+
+Example (compound action — rule gap + repeat):
+> Finding #1 (HIGH): 검증 없는 성급한 해석 (ambiguous signal → worst-case conclusion, 3회 반복)
+> - **Proposed Actions**: `MEMORY.md feedback` + `Skill idea note`
+> - **Rationale**: Rule absent (not violated) → enforcement mechanism needed; 3× repeat → memo alone will not prevent recurrence
+> - **What will be created**:
+>   - `memory/feedback_falsify_before_interpret.md` — rule: run a disconfirmation check before concluding from ambiguous signals
+>   - `.omc/plans/retrospect-skill-idea-falsify-first.md` — proposed `/falsify-first` skill trigger
+> - **Verify**: both files exist + MEMORY.md index updated
 
 **Then ask for approval per item using AskUserQuestion:**
 
