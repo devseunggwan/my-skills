@@ -186,7 +186,7 @@ No patterns found: "This session followed all CLAUDE.md rules. ✅"
 
 | Axis | Signal → Action |
 |------|----------------|
-| **Repeat count** | 0–1× → `memory`; 2× → `memory + issue`; 3×+ → prefer `skill` or `rule` alongside `memory` |
+| **Repeat count** | 0–1× → `memory` (new pattern); 2× → `issue` (memory blocked — repeat); 3×+ → `skill` or `hook` (enforcement gap) |
 | **Scope** | Cross-project impact → `CLAUDE.md draft`; single-project → `MEMORY.md` |
 | **Gap type** | Rule violated → `memory` (reinforce); rule absent → `CLAUDE.md draft` (fill gap); no enforcement → `skill idea` |
 
@@ -208,12 +208,12 @@ Example (single action — repeat pattern):
 
 Example (compound action — rule gap + repeat):
 > Finding #1 (HIGH): Hasty interpretation without verification (ambiguous signal → worst-case conclusion, 3 occurrences)
-> - **Proposed Actions**: `MEMORY.md feedback` + `Skill idea note`
-> - **Rationale**: Rule absent (not violated) → enforcement mechanism needed; 3× repeat → memo alone will not prevent recurrence
+> - **Proposed Actions**: `CLAUDE.md draft` + `GitHub issue`
+> - **Rationale**: Rule absent + 3× repeat → fill the rule gap (CLAUDE.md draft) and track enforcement compliance (GitHub issue); matches Stage 2 ladder: "Missing rule + Repeat"
 > - **What will be created**:
->   - `memory/feedback_falsify_before_interpret.md` — rule: run a disconfirmation check before concluding from ambiguous signals
->   - `.omc/plans/retrospect-skill-idea-falsify-first.md` — proposed `/falsify-first` skill trigger
-> - **Verify**: both files exist + MEMORY.md index updated
+>   - CLAUDE.md draft: new rule requiring a disconfirmation check before concluding from ambiguous signals
+>   - issue — `feat(retrospect): enforce falsify-first check on ambiguous signal interpretation`
+> - **Verify**: CLAUDE.md draft shown to user for approval + issue URL returned
 
 **Then ask for approval per item using AskUserQuestion:**
 
