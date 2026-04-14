@@ -130,7 +130,7 @@ You MUST complete each stage before proceeding to the next.
    b. For each finding's root cause, identify candidate matches from index titles (concept-level, not keyword)
    c. Read each candidate feedback file to confirm semantic match (same root cause, not just similar keywords)
    d. Only mark `repeat=true` if root cause is semantically identical
-      - Example: "workflow skip" in index + "워크플로우 위반" in finding = match
+      - Example: "workflow skip" in index + "workflow violation" in finding = match
       - Example: "commit" matching both "atomic commit" and "pre-commit hook" = NOT auto-match, read file to confirm
    e. `repeat_count` = number of distinct feedback files with matching root cause
    f. If match found with existing resolution action (issue/hook already created): mark as `resolved=true`
@@ -165,7 +165,7 @@ You MUST complete each stage before proceeding to the next.
 
 | # | Pattern | Root Cause | Rule | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
 |---|---------|------------|------|---------|------------------------|-----------|----------|
-| 1 | {pattern} | {root_cause} | {rule_ref} | {Yes(N회)/No} | {action1} [+ {action2}] | {why_composite_or_single} | HIGH/MED/LOW |
+| 1 | {pattern} | {root_cause} | {rule_ref} | {Yes(Nx)/No} | {action1} [+ {action2}] | {why_composite_or_single} | HIGH/MED/LOW |
 ...
 
 No patterns found: "This session followed all CLAUDE.md rules. ✅"
@@ -196,18 +196,18 @@ No patterns found: "This session followed all CLAUDE.md rules. ✅"
 
 For each finding, present:
 1. **What will be created** (file path, issue title, hook name, or CLAUDE.md rule text)
-2. **Why this action type** (escalation rationale — e.g., "MEMORY.md에 이미 3회 기록됨")
+2. **Why this action type** (escalation rationale — e.g., "Already recorded 3x in MEMORY.md")
 3. **How it will be verified** (what check confirms it works)
 
 Example (single action — repeat pattern):
-> Finding #2: 워크플로우 위반 (4회차)
+> Finding #2: Workflow step skipped (4th occurrence)
 > - **Proposed Actions**: GitHub issue
-> - **Rationale**: MEMORY.md에 이미 3회 기록됨. memory는 실패한 대책. structural fix 필요.
+> - **Rationale**: Already recorded 3x in MEMORY.md. Memory alone has failed. Structural fix required.
 > - **What will be created**: issue — `feat(hook): add external-repo commit guard`
-> - **Verify**: issue URL 반환 + `gh issue view` 존재 확인
+> - **Verify**: issue URL returned + `gh issue view` confirms existence
 
 Example (compound action — rule gap + repeat):
-> Finding #1 (HIGH): 검증 없는 성급한 해석 (ambiguous signal → worst-case conclusion, 3회 반복)
+> Finding #1 (HIGH): Hasty interpretation without verification (ambiguous signal → worst-case conclusion, 3 occurrences)
 > - **Proposed Actions**: `MEMORY.md feedback` + `Skill idea note`
 > - **Rationale**: Rule absent (not violated) → enforcement mechanism needed; 3× repeat → memo alone will not prevent recurrence
 > - **What will be created**:
@@ -242,7 +242,7 @@ For each approved action:
    a. Reuse Stage 2 Step 7's repeat scan results — if a finding matched an existing memory but was NOT escalated (i.e., it's a genuinely new sub-pattern), that file is the merge target
    b. If no Stage 2 match: scan MEMORY.md index for entries with overlapping root cause or topic (concept-level, not keyword)
    c. For each candidate, read the existing memory file and compare:
-      - Same root cause / principle → **merge**: append new context (사례, How to apply 항목) to the existing file. If merge makes this the 2nd+ occurrence, re-evaluate whether action type should escalate per Stage 2 Step 8
+      - Same root cause / principle → **merge**: append new context (examples, How to apply items) to the existing file. If merge makes this the 2nd+ occurrence, re-evaluate whether action type should escalate per Stage 2 Step 8
       - Related but distinct principle → **create new file** (genuinely different insight)
    d. **Never create a new file when the insight is a specific instance of an existing general rule** — add it as a numbered sub-item instead
    e. After merge or create, update MEMORY.md index (update description if merged, add new line if created)
@@ -260,13 +260,13 @@ For each approved action:
    - `{current_project}` = `$CLAUDE_PROJECT_DIR` or `git rev-parse --show-toplevel`
    - Include: problem, proposed skill trigger, pipeline sketch
 
-5. **Hook code** → For enforcement-level actions (repeat 3회+):
+5. **Hook code** → For enforcement-level actions (repeat 3x+):
    a. Write hook script to `.claude/hooks/` or appropriate location
    b. Present the hook code to user for review
    c. Explain how to register in `.claude/settings.json` (show the exact JSON entry)
-   d. Use AskUserQuestion: "Hook을 settings.json에 등록할까요?" (✅ 등록 / ⏭ 파일만 유지 / 🕐 나중에)
+   d. Use AskUserQuestion: "Register this hook in settings.json?" (✅ Register / ⏭ Keep file only / 🕐 Later)
    e. If approved: Edit `.claude/settings.json` to register the hook
-   f. If skipped/deferred: hook 파일만 남기고 수동 등록 안내
+   f. If skipped/deferred: leave the hook file in place and provide manual registration instructions
 
 6. **Verification** — For each executed action, verify the artifact:
 
@@ -275,7 +275,7 @@ For each approved action:
    | MEMORY.md feedback (new) | File exists + MEMORY.md index updated |
    | MEMORY.md feedback (merged) | Existing file updated (diff shown) + MEMORY.md index description updated if needed |
    | GitHub issue | `gh issue view {url}` returns valid data |
-   | Hook code | Script file exists + settings.json 등록 확인 (dry-run은 hook 유형별로 달라 generic 불가) |
+   | Hook code | Script file exists + settings.json registration confirmed (dry-run varies by hook type — no generic check) |
    | CLAUDE.md draft | Diff shown to user + explicit approval received |
    | Skill idea note | File exists in `.omc/plans/` |
 
@@ -341,9 +341,9 @@ If you catch yourself:
 | Stage 1 (load) | CLAUDE.md not found (project or global) | Proceed with global defaults; flag the missing file in the report |
 | Stage 2 (analyze) | Session history not accessible | Fall back to the user's verbal summary as input to steps 3–8 |
 | Stage 2 (analyze) | No friction events found | Exit with "No patterns found. ✅" — do not fabricate findings |
-| Stage 2 (analyze) | MEMORY.md 스캔 실패 (파일 접근 불가) | 모든 finding을 신규 패턴으로 처리 (repeat=false). 스캔 실패를 report에 명시 |
-| Stage 2 (analyze) | MEMORY.md 비어있음 | 정상 처리 — 모든 finding이 신규 패턴 |
-| Stage 2 (analyze) | tracer/analyst 호출 실패 | 수동 분석으로 fallback. 에이전트 실패를 report에 명시. root cause 품질 저하 경고 |
+| Stage 2 (analyze) | MEMORY.md scan failed (file not accessible) | Treat all findings as new patterns (repeat=false). Flag scan failure in report |
+| Stage 2 (analyze) | MEMORY.md is empty | Normal processing — all findings are new patterns |
+| Stage 2 (analyze) | tracer/analyst call failed | Fall back to manual analysis. Flag agent failure in report. Warn about reduced root cause quality |
 | Stage 3 (report) | User rejects all findings | Capture the rejection itself as a feedback signal for future retrospects |
 | Stage 4 (execute) | MEMORY.md write fails | Report the path error; never silently drop the feedback |
 | Stage 4 (execute) | GitHub issue creation fails | Fall back to saving a note in `.omc/plans/` for later manual creation |
