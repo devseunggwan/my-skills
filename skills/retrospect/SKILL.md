@@ -173,20 +173,21 @@ No patterns found: "This session followed all CLAUDE.md rules. ✅"
 
 **Action type baseline comes from Stage 2 escalation ladder**, but Stage 3 MUST explicitly evaluate all four action types per finding and select 1–2 composite actions.
 
-**For each finding, evaluate ALL four action types before selecting:**
+**For each finding, evaluate ALL five action types before selecting:**
 
 | Action Type | When to Choose | Skip If |
 |-------------|---------------|---------|
-| **MEMORY.md feedback** | New pattern (1st occurrence), individual learning, existing rule violated | Pattern already in MEMORY.md (escalate instead) |
+| **MEMORY.md feedback** | New pattern (1st occurrence, repeat_count=0), individual learning | repeat=true (memory is BLOCKED) |
 | **GitHub issue** | Systemic fix needed (tool/skill implementation), repeat pattern (1–2×) | One-off mistake, purely local insight |
 | **CLAUDE.md draft** | Explicit rule gap exists, cross-project scope needed | Existing rule already covers this pattern |
 | **Skill idea note** | Repeat pattern needs enforcement mechanism, manual recall is insufficient | Single memo is sufficient, no recurring trigger |
+| **Hook code** | Repeat (3x+) requiring automated enforcement; manual recall has repeatedly failed | Fewer than 3 repeats; skill idea or rule is sufficient |
 
 **Selection matrix — three axes to determine compound vs. single action:**
 
 | Axis | Signal → Action |
 |------|----------------|
-| **Repeat count** | 0–1× → `memory` (new pattern); 2× → `issue` (memory blocked — repeat); 3×+ → `skill` or `hook` (enforcement gap) |
+| **Repeat count** | 0× → `memory` (first occurrence); 1–2× → `issue` (memory blocked — repeat=true); 3×+ → `skill` or `hook` (enforcement gap) |
 | **Scope** | Cross-project impact → `CLAUDE.md draft`; single-project → `MEMORY.md` |
 | **Gap type** | Rule violated → `memory` (reinforce); rule absent → `CLAUDE.md draft` (fill gap); no enforcement → `skill idea` |
 
