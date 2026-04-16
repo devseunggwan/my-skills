@@ -83,11 +83,11 @@ Skills that dispatch external CLI workers (`cmux-orchestrator`, `cmux-delegate`,
 
 ### Provider CLI Spec
 
-| Provider | Non-interactive command | Output format | Stdin prompt |
-|----------|----------------------|---------------|-------------|
-| `claude` | `cat $F \| claude --model {m} --output-format stream-json --permission-mode auto` | stream-json (JSONL) | `cat file \| claude` |
-| `codex` | `cat $F \| codex exec {m:+-m m}` | stdout text / `--json` JSONL | `cat file \| codex exec` |
-| `gemini` | `gemini -p "$(cat $F)" --approval-mode yolo {m:+-m m}` | stream-json (`-o stream-json`) | via `-p` flag |
+| Provider | Non-interactive command | Output format | Stdin prompt | Write access |
+|----------|----------------------|---------------|-------------|-------------|
+| `claude` | `cat $F \| claude --model {m} --output-format stream-json --permission-mode auto` | stream-json (JSONL) | `cat file \| claude` | Full |
+| `codex` | `cat $F \| codex exec {m:+-m m}` | stdout text / `--json` JSONL | `cat file \| codex exec` | Sandbox-restricted — explicit fallback required |
+| `gemini` | `gemini -p "$(cat $F)" --approval-mode yolo {m:+-m m}` | stream-json (`-o stream-json`) | via `-p` flag | Full |
 
 All providers share the same completion sentinel: `; echo '===WORKER_DONE===' >> $LOG` appended after the CLI exits.
 
@@ -132,6 +132,9 @@ Two-phase routing: task keywords select the provider, then complexity selects th
 1. **Pre-flight**: `command -v <cli>` before dispatch. If missing → fall back to `claude:sonnet` with warning.
 2. **Runtime**: Worker failure → re-dispatch with `claude` as fallback provider.
 3. **Graceful**: If only `claude` is installed, all routing resolves to claude. Original behavior preserved.
+
+> **codex write detection**: After a codex worker completes, run `git status` to verify files were actually written. An empty diff after a code-generation task is a strong signal of sandbox write failure — trigger a claude fallback re-dispatch immediately.
+> <!-- TODO: automate re-dispatch on empty git diff -->
 
 ### Provider Resolution Logic
 

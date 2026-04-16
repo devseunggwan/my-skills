@@ -404,3 +404,4 @@ user: /cmux-delegate "full code review" --model claude:opus --account claude-2
 - 결과 파일 자동 수집/보고 미지원 → 사용자가 cmux에서 직접 확인
 - 작업 유형별 템플릿 미지원 → 사용자가 프롬프트에 직접 명시
 - distribute 모드의 자동 분할은 섹션 헤더 기반 — 비정형 프롬프트는 수동 분할 필요
+- **codex 쓰기 제약**: `codex exec`는 샌드박스 환경으로 인해 파일 쓰기가 실패해도 오류 없이 종료될 수 있음 — 완료 후 반드시 `git status`로 실제 변경 여부를 확인할 것. 빈 diff가 나오면 즉시 `claude` fallback으로 재위임.
