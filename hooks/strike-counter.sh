@@ -186,11 +186,27 @@ Ask the user to run /praxis:reset-strikes and acknowledge the retrospective befo
     jq --arg r "$REASON" '.count = (.count + 1) | .reasons = (.reasons + [$r])' \
       "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
     COUNT=$(load_count)
-    case "$COUNT" in
-      1) echo "⚠️ 1진 경고: $REASON (다음 응답부터 주의 강화)" ;;
-      2) echo "🔶 2진 회고 필요: $REASON. 누적 목록:"; load_reasons_plain; echo "관련 CLAUDE.md 섹션 재독 후 응답." ;;
-      *) echo "🔴 3진 block 상태: $REASON. 누적 목록:"; load_reasons_plain; echo "다음 응답은 Stop hook으로 차단됩니다. /praxis:reset-strikes 로 해제." ;;
-    esac
+    # Distinguish expected counts (1/2/>=3) from unexpected values (0,
+    # non-numeric, empty). COUNT=0 after a strike usually means the write
+    # failed silently (jq parse error on corrupt state, mv failure, etc.);
+    # announcing "3진 block" in that case is a lie since the Stop hook
+    # only blocks when count>=3. Route unexpected values through a distinct
+    # error branch so UX matches actual enforcement state.
+    if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -eq 0 ] 2>/dev/null; then
+      echo "⚠️ Strike 상태 이상: count='$COUNT' — state 파일 손상 또는 쓰기 실패 가능." >&2
+      echo "복구: /praxis:reset-strikes 후 재시도 권장." >&2
+    elif [ "$COUNT" -eq 1 ] 2>/dev/null; then
+      echo "⚠️ 1진 경고: $REASON (다음 응답부터 주의 강화)"
+    elif [ "$COUNT" -eq 2 ] 2>/dev/null; then
+      echo "🔶 2진 회고 필요: $REASON. 누적 목록:"
+      load_reasons_plain
+      echo "관련 CLAUDE.md 섹션 재독 후 응답."
+    else
+      # COUNT >= 3
+      echo "🔴 3진 block 상태: $REASON. 누적 목록:"
+      load_reasons_plain
+      echo "다음 응답은 Stop hook으로 차단됩니다. /praxis:reset-strikes 로 해제."
+    fi
     exit 0
     ;;
 

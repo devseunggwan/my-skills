@@ -274,6 +274,33 @@ test_ac16_skill_files_exist() {
   [ "$ok" -eq 1 ]
 }
 
+# ---- AC18 (codex P2): corrupt state file → error branch, not false 3진 ----
+test_ac18_corrupt_state_not_false_block() {
+  fresh_env
+  mkdir -p "$CLAUDE_PLUGIN_DATA/strikes"
+  # Seed a non-JSON state file so jq parse fails and COUNT stays 0
+  echo "not-valid-json" > "$CLAUDE_PLUGIN_DATA/strikes/${CLAUDE_SESSION_ID}.json"
+
+  local out err
+  out=$("$STRIKE" strike "after-corrupt" 2>/tmp/err.$$)
+  local code=$?
+  err=$(cat /tmp/err.$$)
+  rm -f /tmp/err.$$
+
+  # Confirm stop hook does NOT block (count<3), confirming the UX/enforcement
+  # asymmetry is fixed — error message on stderr, not false 3진 on stdout
+  local stop_out
+  local json_in
+  json_in=$(printf '{"session_id":"%s","stop_hook_active":false}' "$CLAUDE_SESSION_ID")
+  stop_out=$(echo "$json_in" | "$STRIKE" stop 2>&1)
+  cleanup_env
+
+  [ "$code" -eq 0 ] \
+    && [ -z "$(echo "$out" | grep '3진 block')" ] \
+    && echo "$err" | grep -q "Strike 상태 이상" \
+    && [ -z "$stop_out" ]
+}
+
 # ---- AC17 (plan Step 1.5): TTL cleanup removes stale state files -----------
 test_ac17_ttl_cleanup() {
   fresh_env
@@ -327,6 +354,7 @@ run "AC14 session-start exports CLAUDE_SESSION_ID via \$CLAUDE_ENV_FILE" test_ac
 run "AC15 jq missing → stdout+stderr guidance + exit 0" test_ac15_jq_missing_guidance
 run "AC16 skill files exist + reference strike-counter.sh" test_ac16_skill_files_exist
 run "AC17 TTL cleanup removes stale state files" test_ac17_ttl_cleanup
+run "AC18 corrupt state → error branch, not false 3진 (codex P2)" test_ac18_corrupt_state_not_false_block
 
 echo "------------------------"
 echo "Passed: $PASS  Failed: $FAIL"
