@@ -8,12 +8,12 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 
 | Tier | What works | Dependencies |
 |------|-----------|--------------|
-| **Standalone** | turbo-setup, recover-sessions | `gh` CLI |
+| **Standalone** | turbo-setup, recover-sessions, strike / strikes / reset-strikes | `gh` CLI, `jq` (for strike skills) |
 | **Enhanced** | + turbo-implement, turbo-completion, debug, retrospect | + oh-my-claudecode |
 | **Full** | + all cmux-* skills | + cmux |
 | **Multi-provider** | + codex/gemini routing in cmux-*, turbo-implement | + codex-cli, gemini-cli |
 
-## Skills (12)
+## Skills (15)
 
 ### Workflow Lifecycle
 
@@ -29,6 +29,14 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 |-------|---------|
 | `debug` | Systematic 4-phase debugging — root cause investigation before any fix |
 | `retrospect` | Session retrospect — find friction root causes, propose improvements |
+
+### Discipline
+
+| Skill | Purpose |
+|-------|---------|
+| `strike` | Declare a rule violation — session-scoped counter, escalating signal (1진 warning → 2진 review → 3진 Stop-hook block) |
+| `strikes` | Show current strike count + recorded violation reasons for the active session |
+| `reset-strikes` | Reset the session strike counter to 0 after a 3진 block (required to unblock responses) |
 
 ### Session Management
 
