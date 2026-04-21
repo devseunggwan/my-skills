@@ -247,6 +247,66 @@ test_ac14_env_file_export() {
   [ "$ok" -eq 1 ]
 }
 
+# ---- AC15 (plan AC7): jq missing → stdout AND stderr guidance, exit 0 ------
+test_ac15_jq_missing_guidance() {
+  fresh_env
+  # Empty PATH hides every external binary including jq
+  local out err code
+  out=$(PATH="" "$STRIKE" strike "x" 2>/tmp/err.$$)
+  code=$?
+  err=$(cat /tmp/err.$$)
+  rm -f /tmp/err.$$
+  cleanup_env
+  [ "$code" -eq 0 ] \
+    && echo "$out" | grep -q "jq required" \
+    && echo "$err" | grep -q "jq required"
+}
+
+# ---- AC16 (plan AC9): skill files exist + reference strike-counter.sh ------
+test_ac16_skill_files_exist() {
+  local root
+  root=$(cd "$SCRIPT_DIR/.." && pwd)
+  local ok=1
+  for s in strike strikes reset-strikes; do
+    [ -f "$root/skills/$s/SKILL.md" ] || ok=0
+    grep -q "strike-counter.sh" "$root/skills/$s/SKILL.md" 2>/dev/null || ok=0
+  done
+  [ "$ok" -eq 1 ]
+}
+
+# ---- AC17 (plan Step 1.5): TTL cleanup removes stale state files -----------
+test_ac17_ttl_cleanup() {
+  fresh_env
+  # Ensure strikes/ dir exists first, then drop a stale state file plus a
+  # fresh one. session-start should sweep stale but leave fresh.
+  mkdir -p "$CLAUDE_PLUGIN_DATA/strikes"
+  local stale_sid="ttl-stale-$$"
+  local stale_file="$CLAUDE_PLUGIN_DATA/strikes/${stale_sid}.json"
+  local fresh_sid="ttl-fresh-$$"
+  local fresh_file="$CLAUDE_PLUGIN_DATA/strikes/${fresh_sid}.json"
+  echo '{"count":0,"reasons":[]}' > "$stale_file"
+  echo '{"count":0,"reasons":[]}' > "$fresh_file"
+  # Backdate only the stale one (-v for macOS BSD, -d for GNU)
+  touch -t "$(date -v-8d +%Y%m%d%H%M 2>/dev/null || date -d '8 days ago' +%Y%m%d%H%M 2>/dev/null)" \
+    "$stale_file" 2>/dev/null
+
+  # Sanity: confirm both files were created
+  local precheck_ok=1
+  [ -f "$stale_file" ] || precheck_ok=0
+  [ -f "$fresh_file" ] || precheck_ok=0
+
+  local json_in
+  json_in=$(printf '{"session_id":"%s"}' "$CLAUDE_SESSION_ID")
+  echo "$json_in" | "$STRIKE" session-start >/dev/null
+
+  local stale_gone=1
+  [ -f "$stale_file" ] && stale_gone=0
+  local fresh_kept=1
+  [ -f "$fresh_file" ] || fresh_kept=0
+  cleanup_env
+  [ "$precheck_ok" -eq 1 ] && [ "$stale_gone" -eq 1 ] && [ "$fresh_kept" -eq 1 ]
+}
+
 # ---------- runner ----------------------------------------------------------
 echo "strike-counter.sh tests"
 echo "------------------------"
@@ -264,6 +324,9 @@ run "AC11 missing session_id → silent fail-safe exit 0" test_ac11_missing_sess
 run "AC12 status prints Strikes: N/3" test_ac12_status_header
 run "AC13 hooks.json is valid JSON" test_ac13_hooks_json_valid
 run "AC14 session-start exports CLAUDE_SESSION_ID via \$CLAUDE_ENV_FILE" test_ac14_env_file_export
+run "AC15 jq missing → stdout+stderr guidance + exit 0" test_ac15_jq_missing_guidance
+run "AC16 skill files exist + reference strike-counter.sh" test_ac16_skill_files_exist
+run "AC17 TTL cleanup removes stale state files" test_ac17_ttl_cleanup
 
 echo "------------------------"
 echo "Passed: $PASS  Failed: $FAIL"
