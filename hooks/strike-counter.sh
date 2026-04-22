@@ -105,9 +105,10 @@ load_reasons_plain() {
   fi
 }
 
-# Reflection gating helpers. A reflection is valid only if the file exists
-# AND is non-empty — empty markers would let the user bypass the gate by
-# just `touch`ing the path. `[ -s file ]` covers both conditions atomically.
+# [PR #105] Reflection gating helpers. A reflection is valid only if the
+# file exists AND is non-empty — empty markers would let the user bypass
+# the gate by just `touch`ing the path. `[ -s file ]` covers both
+# conditions atomically. Gate applies only at count>=3 in `reset` mode.
 reflection_valid() {
   [ -s "$REFLECTION_FILE" ]
 }
