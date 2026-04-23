@@ -8,28 +8,18 @@ set -euo pipefail
 
 USER_MESSAGE="${1:-}"
 
-# Guard conditions (ANY match triggers warning)
 check_guard() {
   local msg="$1"
-
-  if echo "$msg" | grep -qiE '(just kidding|Just kidding|kidding,)' 2>/dev/null; then
-    return 1
-  fi
 
   if [ "$(echo "$msg" | wc -w | tr -d ' ')" -le 8 ]; then
     return 0
   fi
 
-  if echo "$msg" | grep -qiE '^(refresh|refresh |print |print |show |show |just |only |纯 )' 2>/dev/null; then
-    local word_after_just
-    word_after_just=$(echo "$msg" | grep -ioE '(just|just |only|only )[[:alnum:]]+' | tail -1 | sed 's/^just\s*//;s/^only\s*//')
-    case "${word_after_just:-}" in
-      kidding|kidding\ *) return 1 ;;
-      *) return 0 ;;
-    esac
+  if echo "$msg" | grep -qiE '^(refresh|refresh |print |print |show |show |纯 )' 2>/dev/null; then
+    return 0
   fi
 
-  if echo "$msg" | grep -qiE '(^|\s)(만|just|only|simply|，纯)(\s|$)' 2>/dev/null; then
+  if echo "$msg" | grep -qiE '(^|\s)(만|simply|，纯)(\s|$)' 2>/dev/null; then
     return 0
   fi
 
