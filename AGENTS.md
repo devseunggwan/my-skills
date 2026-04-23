@@ -49,6 +49,7 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 | `cmux-session-manager` | Daily session lifecycle — status dashboard, cleanup, reorganize |
 | `cmux-delegate` | Delegate a task to an independent session with auto-collected context |
 | `cmux-orchestrator` | Dispatch and supervise parallel Claude Code workers in cmux |
+| `cmux-hook-install` | Install cmux claude-hooks into settings.json (portable) |
 
 ## Architecture
 
