@@ -85,6 +85,21 @@ Project CLAUDE.md (routing config)
 - **SRP per skill**: each skill has one responsibility, chaining connects them
 - **Discipline over convenience**: Iron Laws gate each phase, no skipping
 
+## Jupyter/IPython Output Medium Declaration
+
+When working with `*.ipynb` files, **explicitly declare output medium** before execution.
+
+**Trigger:** User mentions "쥬피터", "노트북", "notebook", "ipynb", or task targets a `.ipynb` file.
+
+**Required check:** Ask or infer output target:
+- `.ipynb cells[].outputs` — default for "쥬피터/노트북 결과" requests
+- `chat-stream` — for logic verification only
+- If ambiguous → ask one clarifying question
+
+**Execution tools:**
+- `jupyter nbconvert --execute --inplace`
+- `papermill`
+
 ## Provider Routing
 
 Skills that dispatch external CLI workers (`cmux-orchestrator`, `cmux-delegate`, `turbo-implement`) can route tasks to multiple AI providers. When only `claude` is installed, the system behaves exactly as before — no errors, no degradation.
