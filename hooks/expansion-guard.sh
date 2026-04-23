@@ -8,27 +8,32 @@ set -euo pipefail
 
 USER_MESSAGE="${1:-}"
 
-# Guard conditions (ALL must match to trigger warning)
-SHOULD_FLAG=0
+# Guard conditions (ANY match triggers warning)
+check_guard() {
+  local msg="$1"
 
-# 1. Check message length (≤ 1 sentence)
-WORD_COUNT=$(echo "$USER_MESSAGE" | wc -w | tr -d ' ')
-if [ "$WORD_COUNT" -le 15 ]; then
-  SHOULD_FLAG=1
-fi
+  if [ "$(echo "$msg" | wc -w | tr -d ' ')" -le 15 ]; then
+    return 0
+  fi
 
-# 2. Check for single imperative verb + single target pattern
-# Simple patterns: "refresh", "print X", "show result", "just do X"
-if echo "$USER_MESSAGE" | grep -qiE '^(refresh|refresh |print |print |show |show |just |only |纯 ' 2>/dev/null; then
-  SHOULD_FLAG=1
-fi
+  if echo "$msg" | grep -qiE '^(refresh|refresh |print |print |show |show |just |only |纯 )' 2>/dev/null; then
+    local word_after_just
+    word_after_just=$(echo "$msg" | grep -ioE '(just|just |only|only )[[:alnum:]]+' | tail -1 | sed 's/^just\s*//;s/^only\s*//')
+    case "${word_after_just:-}" in
+      kidding|kidding\ *) return 1 ;;
+      *) return 0 ;;
+    esac
+  fi
 
-# 3. Check for scope limiter words
-if echo "$USER_MESSAGE" | grep -qiE '(만|just|only|simply|，纯|just )' 2>/dev/null; then
-  SHOULD_FLAG=1
-fi
+  if echo "$msg" | grep -qiE '(^|\s)(만|just|only|simply|，纯)(\s|$)' 2>/dev/null; then
+    return 0
+  fi
 
-if [ "$SHOULD_FLAG" -eq 1 ]; then
+  return 1
+}
+
+if check_guard "$USER_MESSAGE"; then
+  echo ""
   echo "⚠️  [expansion-guard] Simple imperative detected."
   echo "Before responding, verify this is NOT an option-set expansion case:"
   echo "  - Avoid (1)/(2)/(3) or A./B./C. enumerated options"
@@ -36,4 +41,7 @@ if [ "$SHOULD_FLAG" -eq 1 ]; then
   echo "  - If user wants one thing, give ONE thing. Do not expand."
   echo ""
   echo "Respond literally or ask one clarifying question only."
+  exit 1
 fi
+
+exit 0
