@@ -5,8 +5,7 @@
       "kind": "plugin",
       "path": "plugins/praxis/.codex-plugin/plugin.json",
       "plugin_overrides": {
-        "skills": "./skills/",
-        "hooks": "./hooks/hooks.json"
+        "skills": "./skills/"
       }
     },
     {
