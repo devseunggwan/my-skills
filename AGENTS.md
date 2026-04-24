@@ -166,6 +166,79 @@ else:
   sub_model = input
 ```
 
+## PreToolUse Side-Effect Scan
+
+`hooks/side-effect-scan.sh` intercepts every Bash tool call and flags commands
+with collateral side effects before the agent runs them. Goal: prevent the
+"primary-effect only" blind spot that has caused unintended merges, unintended
+prod deploys, and stray auto-commits from CLIs that write to git internally.
+
+### Detection categories
+
+| Category | Trigger examples | Risk |
+|----------|------------------|------|
+| `git-commit` | `git commit`, `git merge`, `git rebase`, `git cherry-pick`, `git revert`, `iceberg-schema migrate`, `iceberg-schema promote`, `omc ralph` | Commits to the wrong branch or under the wrong author |
+| `git-push` | `git push` | Remote published without intent |
+| `gh-merge` | `gh pr merge`, `gh pr create`, `gh workflow run` | Unintended PR state change or workflow dispatch |
+| `kubectl-apply` | `kubectl apply`, `kubectl delete`, `kubectl replace`, `kubectl patch` | Shared cluster mutation |
+
+### Response
+
+When any category matches, the hook emits:
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "ask",
+    "permissionDecisionReason": "[category] reason..."
+  }
+}
+```
+
+Claude Code surfaces this as a permission prompt so the user can confirm or
+redirect before the command executes.
+
+### Prod emphasis
+
+If any token on the command line matches `prod`, `production`,
+`--env prod`/`--environment=prod`, the reason is prefixed with a
+`⚠️  PROD scope` warning so the reviewer treats it with extra care.
+
+### Opt-out marker
+
+Known-intentional invocations can bypass the hook by embedding the literal
+marker anywhere in the command:
+
+```bash
+git push origin main  # side-effect:ack
+```
+
+Use sparingly — the marker is a deliberate assertion that the side effect is
+exactly what the current step requires.
+
+### Parsing guarantees
+
+Commands are tokenized with Python's `shlex.split(..., posix=True)` (not regex),
+so:
+
+- Quotes (`"`/`'`) protect literal strings from being parsed as commands.
+- Pipelines (`|`), chains (`&&`, `||`, `;`) re-seed the command-start search at
+  each segment; `echo foo | git push origin main` is still caught.
+- Subshells (`$(...)`) are opaque to shlex and **not** decomposed — an
+  acknowledged limitation; rely on the author to use `# side-effect:ack`
+  explicitly if they're running side-effecting code through `$()`.
+
+### Tests
+
+`tests/test_side_effect_scan.sh` covers 26 cases (positive detection across
+all categories, prod emphasis, opt-out, shlex-aware evasions, non-Bash
+passthrough, malformed input). Run before editing the hook:
+
+```bash
+./tests/test_side_effect_scan.sh
+```
+
 ## Local Development
 
 ### Canonical clone path

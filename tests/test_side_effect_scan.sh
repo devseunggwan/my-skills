@@ -1,0 +1,148 @@
+#!/bin/bash
+# tests/test_side_effect_scan.sh — PreToolUse(Bash) hook coverage
+#
+# Invokes hooks/side-effect-scan.sh with synthesized hook payloads and asserts
+# the hook's decision: "ask" (reason emitted) or "pass" (no output, exit 0).
+#
+# Run:  ./tests/test_side_effect_scan.sh
+# Exit: 0 on success, 1 on first failure (after summary).
+
+set +e
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+HOOK="$REPO_ROOT/hooks/side-effect-scan.sh"
+
+if [ ! -x "$HOOK" ]; then
+  echo "FAIL: hook not executable: $HOOK" >&2
+  exit 1
+fi
+
+PASS=0
+FAIL=0
+FAILED_NAMES=()
+
+# run_case name expected command [extra_prod_flag]
+#   expected: "ask" (hook must return permissionDecision=ask) | "pass" (no output)
+run_case() {
+  local name="$1" expected="$2" command="$3" prod_expected="${4:-}"
+
+  local payload
+  payload=$(python3 -c '
+import json, sys
+print(json.dumps({
+    "tool_name": "Bash",
+    "tool_input": {"command": sys.argv[1]},
+}))' "$command")
+
+  local out
+  out=$(echo "$payload" | "$HOOK" 2>/dev/null)
+  local rc=$?
+
+  if [ "$rc" -ne 0 ]; then
+    echo "FAIL  [$name] hook exited $rc (expected 0)"
+    FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name"); return
+  fi
+
+  case "$expected" in
+    ask)
+      if ! echo "$out" | grep -q '"permissionDecision": "ask"'; then
+        echo "FAIL  [$name] expected ask, got: ${out:-<empty>}"
+        FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name"); return
+      fi
+      if [ "$prod_expected" = "prod" ]; then
+        if ! echo "$out" | grep -q 'PROD scope'; then
+          echo "FAIL  [$name] expected prod emphasis, got: $out"
+          FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name"); return
+        fi
+      fi
+      ;;
+    pass)
+      if [ -n "$out" ]; then
+        echo "FAIL  [$name] expected pass (no output), got: $out"
+        FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name"); return
+      fi
+      ;;
+    *)
+      echo "FAIL  [$name] unknown expected: $expected"
+      FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name"); return
+      ;;
+  esac
+  echo "PASS  [$name]"
+  PASS=$((PASS + 1))
+}
+
+# --- detection: git mutation ------------------------------------------------
+run_case "git-commit bare"          ask  "git commit -m 'wip'"
+run_case "git-merge"                ask  "git merge feature-x"
+run_case "git-rebase"               ask  "git rebase -i HEAD~3"
+run_case "git-push"                 ask  "git push origin main"
+
+# --- detection: gh remote trigger ------------------------------------------
+run_case "gh pr merge"              ask  "gh pr merge 42 --squash"
+run_case "gh pr create"             ask  "gh pr create --title x --body y"
+run_case "gh workflow run"          ask  "gh workflow run deploy.yml"
+
+# --- detection: kubectl shared write ---------------------------------------
+run_case "kubectl apply"            ask  "kubectl apply -f pod.yaml"
+run_case "kubectl delete"           ask  "kubectl delete ns my-ns"
+
+# --- detection: known wrapper CLIs that commit internally ------------------
+run_case "iceberg-schema migrate"   ask  "iceberg-schema migrate --table users"
+run_case "omc ralph"                ask  "omc ralph --task foo"
+
+# --- prod emphasis ----------------------------------------------------------
+run_case "git push prod branch"     ask  "git push origin prod"             prod
+run_case "kubectl apply --env prod" ask  "kubectl apply -f app.yaml --env prod" prod
+
+# --- negative: benign commands (no side effects) ---------------------------
+run_case "git status"               pass "git status"
+run_case "git log"                  pass "git log --oneline -5"
+run_case "gh pr view"               pass "gh pr view 42"
+run_case "kubectl get"              pass "kubectl get pods -n default"
+run_case "ls with git in path"      pass "ls /usr/local/git-lfs"
+run_case "echo commit word"         pass "echo 'i will commit later'"
+
+# --- opt-out marker ---------------------------------------------------------
+run_case "ack bypasses detection"   pass "git push origin main  # side-effect:ack"
+
+# --- shlex-aware evasions --------------------------------------------------
+# Without shlex, pipeline-hidden git push would evade naive substring match.
+run_case "pipeline hides git push"  ask  "echo foo | git push origin main"
+# Compound command in same line — second segment is a mutating git commit.
+run_case "compound git-commit"      ask  "make build && git commit -am 'release'"
+# Quoted string containing git push should NOT trigger (shlex doesn't expose
+# the inner tokens as commands).
+run_case "quoted git push literal"  pass "echo \"git push origin main\""
+# Subshell form: $(git push ...) — inner command IS still a new command start.
+# (Hook detects at token level; $() is opaque to shlex as a single token,
+# so this stays pass — a known limitation documented in AGENTS.md.)
+run_case "subshell opaque"          pass "echo \$(date)"
+
+# --- non-Bash tool passthrough ---------------------------------------------
+non_bash_out=$(echo '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}' | "$HOOK" 2>/dev/null)
+if [ -z "$non_bash_out" ]; then
+  echo "PASS  [non-Bash tool passthrough]"; PASS=$((PASS + 1))
+else
+  echo "FAIL  [non-Bash tool passthrough] got: $non_bash_out"
+  FAIL=$((FAIL + 1)); FAILED_NAMES+=("non-Bash tool passthrough")
+fi
+
+# --- malformed JSON ---------------------------------------------------------
+bad_out=$(echo 'not json' | "$HOOK" 2>/dev/null)
+bad_rc=$?
+if [ "$bad_rc" -eq 0 ] && [ -z "$bad_out" ]; then
+  echo "PASS  [malformed JSON fails safe]"; PASS=$((PASS + 1))
+else
+  echo "FAIL  [malformed JSON] rc=$bad_rc out=$bad_out"
+  FAIL=$((FAIL + 1)); FAILED_NAMES+=("malformed JSON fails safe")
+fi
+
+echo
+echo "=========================================="
+echo "  PASS: $PASS  FAIL: $FAIL"
+echo "=========================================="
+if [ "$FAIL" -gt 0 ]; then
+  printf '  failed: %s\n' "${FAILED_NAMES[@]}"
+  exit 1
+fi
+exit 0
