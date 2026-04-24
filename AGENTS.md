@@ -227,19 +227,28 @@ Commands are tokenized with `shlex.shlex(..., posix=True, punctuation_chars=";|&
   tokens, even when typed without surrounding whitespace — `git push&&echo ok`
   and `echo x|git push origin main` both split cleanly and each segment is
   scanned for command starts.
-- Env prefixes (`FOO=1 git push`), `env`/`sudo` wrappers, and sudo option pairs
-  (`sudo -u admin kubectl apply`) are peeled from argv before matching, so the
-  effective command is what gets checked.
+- Env prefixes (`FOO=1 git push`), wrapper commands (`env`, `sudo`, `nice`,
+  `time`, `stdbuf`, `ionice`), and their option flags are peeled from argv
+  before matching — including both `--user admin` (separate value) and
+  `--user=admin` (embedded), plus bare flags like `env -i`, `sudo -E`,
+  `stdbuf -oL`. Nested wrappers (`sudo -E env GIT_TRACE=1 git push`) are
+  unwrapped iteratively.
+- Shell control-flow keywords (`if`, `then`, `elif`, `else`, `fi`, `while`,
+  `until`, `do`, `done`, `for`, `case`, `esac`, `in`, `function`, `!`, `{`,
+  `}`) are peeled from the start of each segment so `if true; then git push`,
+  `for x in 1; do kubectl apply`, and `if git push; then ...` all reach the
+  real executable.
 - Subshells (`$(...)`) are opaque to shlex and **not** decomposed — an
   acknowledged limitation; rely on the author to use `# side-effect:ack`
   explicitly if they're running side-effecting code through `$()`.
 
 ### Tests
 
-`tests/test_side_effect_scan.sh` covers 36 cases — positive detection across
-all categories, prod emphasis, opt-out, shlex-aware evasions, operator-adjacent
-one-liners, env/sudo prefix peeling, non-Bash passthrough, malformed input.
-Run before editing the hook:
+`tests/test_side_effect_scan.sh` covers 48 cases — positive detection across
+all categories, prod emphasis, opt-out, shlex-aware evasions,
+operator-adjacent one-liners, env/sudo prefix peeling, wrapper option flags
+(long/short/equals/bare), nested wrappers, shell control-flow keywords,
+non-Bash passthrough, malformed input. Run before editing the hook:
 
 ```bash
 ./tests/test_side_effect_scan.sh

@@ -132,6 +132,22 @@ run_case "sudo -u user kubectl"     ask  "sudo -u admin kubectl apply -f x.yaml"
 run_case "multi-env prefix"         ask  "A=1 B=2 git push origin prod"          prod
 run_case "env wrapper no assign"    ask  "env git commit -am x"
 
+# --- wrapper option flags (Codex P2) ---------------------------------------
+run_case "env -i flag"              ask  "env -i git push origin main"
+run_case "sudo --user long opt"     ask  "sudo --user admin kubectl apply -f x.yaml"
+run_case "sudo --user=equals"       ask  "sudo --user=admin kubectl apply -f x.yaml"
+run_case "nice -n 10 prefix"        ask  "nice -n 10 git commit -am x"
+run_case "stdbuf -oL prefix"        ask  "stdbuf -oL git push"
+run_case "sudo -E bare flag"        ask  "sudo -E kubectl delete ns my-ns"
+run_case "nested sudo env wrapper"  ask  "sudo -E env GIT_TRACE=1 git push"
+
+# --- shell control-flow (Codex P1) -----------------------------------------
+run_case "if-then-git-push"         ask  "if true; then git push origin main; fi"
+run_case "for-do-kubectl"           ask  "for x in 1; do kubectl apply -f x.yaml; done"
+run_case "while-do-commit"          ask  "while true; do git commit -am x; done"
+run_case "if-direct-git-push"       ask  "if git push origin main; then echo ok; fi"
+run_case "elif branch"              ask  "if false; then echo x; elif true; then gh pr merge 1; fi"
+
 # --- non-Bash tool passthrough ---------------------------------------------
 non_bash_out=$(echo '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}' | "$HOOK" 2>/dev/null)
 if [ -z "$non_bash_out" ]; then

@@ -55,11 +55,39 @@ SHELL_SEPARATORS = {";", "&&", "||", "|", "&"}
 OPT_OUT_MARKER = "# side-effect:ack"
 
 ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-# Prefix wrappers that execute the following command as a new process; the
-# scanner must look past them to find the real argv[0]. `sudo` options that
-# take a separate argument are listed so we consume the pair as a unit.
+
+# Shell keywords that appear at the start of a command segment but are purely
+# syntactic. `if true; then git push; fi` segments as `['if','true']`,
+# `['then','git','push']`, `['fi']` — we peel the keyword so argv[0] becomes
+# the real executable.
+SHELL_KEYWORDS = {
+    "if", "then", "elif", "else", "fi",
+    "while", "until", "do", "done",
+    "case", "esac", "in", "for",
+    "{", "}", "!", "function",
+}
+
+# Prefix wrappers that execute the following command as a new process. The
+# scanner looks past them to find the real argv[0]. Per-wrapper option
+# dictionaries list *only* flags that take a separate-token argument so that
+# `sudo --user admin kubectl ...` peels both `--user` and `admin`. Bare flags
+# (with no arg) and `--long=value` forms are handled generically below.
 PREFIX_WRAPPERS = {"env", "sudo", "nice", "time", "stdbuf", "ionice"}
-SUDO_OPTS_WITH_ARG = {"-u", "-g", "-p", "-C", "-D", "-r", "-t", "-T", "-U", "-h"}
+WRAPPER_OPTS_WITH_ARG = {
+    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
+    "sudo": {
+        "-u", "-g", "-p", "-C", "-D", "-r", "-t", "-T", "-U", "-h",
+        "--user", "--group", "--prompt", "--close-from", "--chdir",
+        "--role", "--type", "--host", "--other-user",
+    },
+    "nice": {"-n", "--adjustment"},
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+    "time": set(),
+    "ionice": {
+        "-c", "--class", "-n", "--classdata",
+        "-p", "--pid", "-P", "--pgid", "-u", "--uid",
+    },
+}
 
 
 def has_opt_out(raw: str) -> bool:
@@ -84,34 +112,51 @@ def safe_tokenize(command: str) -> list[str]:
 
 
 def strip_prefix(argv: list[str]) -> list[str]:
-    """Peel `KEY=VAL` assignments, `env`, and `sudo [flags]` off the front.
+    """Peel shell keywords, `KEY=VAL` assignments, and wrapper commands off
+    the front so argv[0] becomes the real executable.
 
-    Common shell forms like `FOO=1 git push`, `env X=y git commit`, and
-    `sudo kubectl apply` need to expose `git`/`kubectl` as the effective
-    argv[0] for detection to fire.
+    Handles (in any order, iteratively):
+    - shell keywords (`if`, `then`, `do`, `while`, etc.) — pure syntax, drop
+    - env assignments (`FOO=1`) — drop
+    - wrapper commands (`env`, `sudo`, `nice`, `time`, `stdbuf`, `ionice`) —
+      drop the wrapper plus its option flags. Option flags are peeled
+      generically: any `-*` token is consumed, and if it's a known arg-taking
+      flag for this wrapper the following value token is peeled too. The
+      `--long=value` form counts as a single token and is handled naturally.
     """
     i = 0
     n = len(argv)
     while i < n:
         tok = argv[i]
+        if tok in SHELL_KEYWORDS:
+            i += 1
+            continue
         if ENV_ASSIGN_RE.match(tok):
             i += 1
             continue
-        if tok not in PREFIX_WRAPPERS:
-            break
-        i += 1
-        if tok == "sudo":
+        if tok in PREFIX_WRAPPERS:
+            wrapper = tok
+            i += 1
+            opts_with_arg = WRAPPER_OPTS_WITH_ARG.get(wrapper, set())
             while i < n:
                 nxt = argv[i]
-                if nxt.startswith("-"):
-                    if nxt in SUDO_OPTS_WITH_ARG and i + 1 < n:
-                        i += 2
-                    else:
-                        i += 1
-                elif ENV_ASSIGN_RE.match(nxt):
+                if ENV_ASSIGN_RE.match(nxt):
                     i += 1
-                else:
+                    continue
+                if not nxt.startswith("-"):
                     break
+                if "=" in nxt:
+                    # --long=value — value embedded; peel this token only
+                    i += 1
+                    continue
+                if nxt in opts_with_arg and i + 1 < n:
+                    # --user admin / -u admin — peel pair
+                    i += 2
+                    continue
+                # bare flag (-E, -i, -oL, etc.) — peel single token
+                i += 1
+            continue
+        break
     return argv[i:]
 
 
