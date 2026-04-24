@@ -1,7 +1,7 @@
 {
   "name": "praxis",
   "description": "Development workflow skills for Claude Code — disciplined, fast, resilient",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "author": {
     "name": "devseunggwan"
   },
@@ -14,6 +14,5 @@
     "session-management",
     "cleanup"
   ],
-  "skills": "./skills/",
-  "hooks": "./hooks/hooks.json"
+  "skills": "./skills/"
 }
