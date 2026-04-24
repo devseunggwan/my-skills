@@ -15,6 +15,7 @@ signal an intentional invocation — the hook then exits 0 without prompting.
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import sys
 
@@ -53,44 +54,77 @@ PROD_LITERAL_TOKENS = {"prod", "production"}
 SHELL_SEPARATORS = {";", "&&", "||", "|", "&"}
 OPT_OUT_MARKER = "# side-effect:ack"
 
+ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# Prefix wrappers that execute the following command as a new process; the
+# scanner must look past them to find the real argv[0]. `sudo` options that
+# take a separate argument are listed so we consume the pair as a unit.
+PREFIX_WRAPPERS = {"env", "sudo", "nice", "time", "stdbuf", "ionice"}
+SUDO_OPTS_WITH_ARG = {"-u", "-g", "-p", "-C", "-D", "-r", "-t", "-T", "-U", "-h"}
+
 
 def has_opt_out(raw: str) -> bool:
     return OPT_OUT_MARKER in raw.lower()
 
 
 def safe_tokenize(command: str) -> list[str]:
+    """Tokenize with shell operators always split into their own tokens.
+
+    Uses shlex.shlex(punctuation_chars=';|&') so that `git push&&echo` and
+    `git push;echo` split into `['git', 'push', '&&', 'echo']` etc. Plain
+    shlex.split keeps operators glued to adjacent words, which would let a
+    whitespace-free one-liner bypass detection entirely.
+    """
     try:
-        return shlex.split(command, posix=True, comments=False)
+        lex = shlex.shlex(command, posix=True, punctuation_chars=";|&")
+        lex.whitespace_split = True
+        lex.commenters = ""  # raw `#` is not a comment here; opt-out marker
+        return list(lex)
     except ValueError:
         return []
 
 
-def iter_command_starts(tokens: list[str]):
-    """Yield (start_index, argv_slice) for each subcommand in a compound line.
+def strip_prefix(argv: list[str]) -> list[str]:
+    """Peel `KEY=VAL` assignments, `env`, and `sudo [flags]` off the front.
 
-    Handles pipelines and `;` / `&&` / `||` chains. Trailing operators that
-    shlex leaves glued to a token (`push;`) are stripped and the next index
-    is also treated as a new command start.
+    Common shell forms like `FOO=1 git push`, `env X=y git commit`, and
+    `sudo kubectl apply` need to expose `git`/`kubectl` as the effective
+    argv[0] for detection to fire.
     """
     i = 0
-    n = len(tokens)
-    start = 0
-    i = 0
+    n = len(argv)
     while i < n:
-        tok = tokens[i]
+        tok = argv[i]
+        if ENV_ASSIGN_RE.match(tok):
+            i += 1
+            continue
+        if tok not in PREFIX_WRAPPERS:
+            break
+        i += 1
+        if tok == "sudo":
+            while i < n:
+                nxt = argv[i]
+                if nxt.startswith("-"):
+                    if nxt in SUDO_OPTS_WITH_ARG and i + 1 < n:
+                        i += 2
+                    else:
+                        i += 1
+                elif ENV_ASSIGN_RE.match(nxt):
+                    i += 1
+                else:
+                    break
+    return argv[i:]
+
+
+def iter_command_starts(tokens: list[str]):
+    """Yield argv slices at each command start across shell separators."""
+    start = 0
+    for i, tok in enumerate(tokens):
         if tok in SHELL_SEPARATORS:
             if start < i:
-                yield start, tokens[start:i]
+                yield tokens[start:i]
             start = i + 1
-        else:
-            stripped = tok.rstrip(";&|")
-            if stripped != tok and stripped:
-                replaced = tokens[start:i] + [stripped]
-                yield start, replaced
-                start = i + 1
-        i += 1
-    if start < n:
-        yield start, tokens[start:n]
+    if start < len(tokens):
+        yield tokens[start:]
 
 
 def argv_matches(argv: list[str], positions, expected) -> bool:
@@ -118,6 +152,7 @@ def argv_matches(argv: list[str], positions, expected) -> bool:
 
 
 def detect(argv: list[str]) -> list[str]:
+    argv = strip_prefix(argv)
     if not argv:
         return []
     cmd = argv[0].rsplit("/", 1)[-1]
@@ -194,7 +229,7 @@ def main() -> int:
         return 0
 
     matched: list[str] = []
-    for _, argv in iter_command_starts(tokens):
+    for argv in iter_command_starts(tokens):
         for cat in detect(argv):
             if cat not in matched:
                 matched.append(cat)

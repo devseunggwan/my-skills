@@ -118,6 +118,20 @@ run_case "quoted git push literal"  pass "echo \"git push origin main\""
 # so this stays pass — a known limitation documented in AGENTS.md.)
 run_case "subshell opaque"          pass "echo \$(date)"
 
+# --- operator-adjacent (no surrounding whitespace) — regression guards ----
+run_case "git push&&echo"           ask  "git push origin main&&echo ok"
+run_case "git push;echo"            ask  "git push origin main;echo ok"
+run_case "echo|git push"            ask  "echo x|git push origin main"
+run_case "commit&&push chained"     ask  "git commit -am x&&git push"
+
+# --- env / sudo / wrapper prefixes — regression guards --------------------
+run_case "env-assign prefix"        ask  "FOO=1 git push origin main"
+run_case "env wrapper"              ask  "env GIT_TRACE=1 git commit -m x"
+run_case "sudo wrapper"             ask  "sudo kubectl apply -f app.yaml"
+run_case "sudo -u user kubectl"     ask  "sudo -u admin kubectl apply -f x.yaml"
+run_case "multi-env prefix"         ask  "A=1 B=2 git push origin prod"          prod
+run_case "env wrapper no assign"    ask  "env git commit -am x"
+
 # --- non-Bash tool passthrough ---------------------------------------------
 non_bash_out=$(echo '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}' | "$HOOK" 2>/dev/null)
 if [ -z "$non_bash_out" ]; then

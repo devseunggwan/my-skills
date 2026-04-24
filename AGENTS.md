@@ -219,21 +219,27 @@ exactly what the current step requires.
 
 ### Parsing guarantees
 
-Commands are tokenized with Python's `shlex.split(..., posix=True)` (not regex),
-so:
+Commands are tokenized with `shlex.shlex(..., posix=True, punctuation_chars=";|&")`
+(not regex), so:
 
 - Quotes (`"`/`'`) protect literal strings from being parsed as commands.
-- Pipelines (`|`), chains (`&&`, `||`, `;`) re-seed the command-start search at
-  each segment; `echo foo | git push origin main` is still caught.
+- Shell operators (`;`, `|`, `&`, `&&`, `||`) are always emitted as standalone
+  tokens, even when typed without surrounding whitespace — `git push&&echo ok`
+  and `echo x|git push origin main` both split cleanly and each segment is
+  scanned for command starts.
+- Env prefixes (`FOO=1 git push`), `env`/`sudo` wrappers, and sudo option pairs
+  (`sudo -u admin kubectl apply`) are peeled from argv before matching, so the
+  effective command is what gets checked.
 - Subshells (`$(...)`) are opaque to shlex and **not** decomposed — an
   acknowledged limitation; rely on the author to use `# side-effect:ack`
   explicitly if they're running side-effecting code through `$()`.
 
 ### Tests
 
-`tests/test_side_effect_scan.sh` covers 26 cases (positive detection across
-all categories, prod emphasis, opt-out, shlex-aware evasions, non-Bash
-passthrough, malformed input). Run before editing the hook:
+`tests/test_side_effect_scan.sh` covers 36 cases — positive detection across
+all categories, prod emphasis, opt-out, shlex-aware evasions, operator-adjacent
+one-liners, env/sudo prefix peeling, non-Bash passthrough, malformed input.
+Run before editing the hook:
 
 ```bash
 ./tests/test_side_effect_scan.sh
