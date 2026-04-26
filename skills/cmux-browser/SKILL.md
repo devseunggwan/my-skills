@@ -240,9 +240,9 @@ cmux browser --surface $SURFACE snapshot --interactive
 curl -sI <target-url> | grep -i content-security-policy
 
 # 2. meta tag CSP (SPAs often inject this via JS bundle)
-cmux browser open <target-url>
-cmux browser wait --load-state complete --timeout 10
-cmux browser eval 'document.querySelector("meta[http-equiv=\"Content-Security-Policy\"]")?.content || "no meta CSP"'
+SURFACE=$(cmux browser open <target-url>)
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout 10
+cmux browser --surface "$SURFACE" eval 'document.querySelector("meta[http-equiv=\"Content-Security-Policy\"]")?.content || "no meta CSP"'
 ```
 
 If `script-src` is present without `unsafe-eval` → ⚠️ eval/click blocked → switch to Playwright.
@@ -251,35 +251,38 @@ If no CSP or `unsafe-eval` is included → proceed.
 ### Phase 1: Setup with SPA Hydration Wait
 
 ```bash
-# 1. Open URL
-cmux browser open <target-url>
+# 1. Open URL and capture the surface handle — required for all subsequent commands
+# (only open/open-split/new/identify work without an explicit surface)
+SURFACE=$(cmux browser open <target-url>)
 
 # 2. SPA Hydration Wait Protocol
 
 # Step 1: network-level load gate
-cmux browser wait --load-state complete --timeout 15
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
 
 # Step 2: detect SPA (output: "true" or "false")
-IS_SPA=$(cmux browser eval '!!(window.__NEXT_DATA__||window.__NUXT__||window.__remixContext||window.__SVELTEKIT_DATA__||window.___gatsby||window.__INITIAL_STATE__||window.ng||document.querySelector("[data-reactroot],[data-v-app],[data-server-rendered],[ng-version],[data-svelte-h]"))' 2>/dev/null | tr -d '"' | tr -d ' \n')
+IS_SPA=$(cmux browser --surface "$SURFACE" eval '!!(window.__NEXT_DATA__||window.__NUXT__||window.__remixContext||window.__SVELTEKIT_DATA__||window.___gatsby||window.__INITIAL_STATE__||window.ng||document.querySelector("[data-reactroot],[data-v-app],[data-server-rendered],[ng-version],[data-svelte-h]"))' 2>/dev/null | tr -d '"' | tr -d ' \n')
 
-# Step 3A: content-density wait for SPA; 3s fast path for static pages
+# Step 3A: content-density wait
+# On timeout, fall back to selector-based wait (Step 3B) rather than silently continuing —
+# proceeding after a failed hydration wait captures the pre-hydration shell
 if [ "$IS_SPA" = "true" ]; then
-  cmux browser wait --function 'document.readyState==="complete" && document.body.innerText.length>200 && document.querySelectorAll("a[href],button").length>5 && !document.querySelector("[aria-busy=true],[data-loading=true]")' --timeout 10 || true
+  cmux browser --surface "$SURFACE" wait --function 'document.readyState==="complete" && document.body.innerText.length>200 && document.querySelectorAll("a[href],button").length>5 && !document.querySelector("[aria-busy=true],[data-loading=true]")' --timeout 10 || \
+    cmux browser --surface "$SURFACE" wait --selector "main,article,nav,[role='main']" --timeout 10 || \
+    echo "Warning: hydration wait timed out — snapshot may reflect pre-hydration state; consider Step 3B with a known selector"
 else
-  # SPA not detected, but run a short content-density check as a safety net —
-  # markers can be missing on custom React/Vite builds; readyState is already
-  # satisfied so a bare readyState check is a no-op here
-  cmux browser wait --function 'document.body.innerText.length>50 && document.querySelectorAll("a[href],button").length>2' --timeout 5 || true
+  # SPA not detected; lightweight check as safety net for undetected SPAs
+  cmux browser --surface "$SURFACE" wait --function 'document.body.innerText.length>50 && document.querySelectorAll("a[href],button").length>2' --timeout 5 || true
 fi
 
 # 3. Snapshot
-cmux browser snapshot --interactive
+cmux browser --surface "$SURFACE" snapshot --interactive
 
 # Validation: count interactive elements (< 10 → retry with Step 3B)
-cmux browser eval 'document.querySelectorAll("a[href],h1,h2,h3,button,nav,article").length'
+cmux browser --surface "$SURFACE" eval 'document.querySelectorAll("a[href],h1,h2,h3,button,nav,article").length'
 
 # 4. Verify eval works (CSP check)
-cmux browser eval "1+1"
+cmux browser --surface "$SURFACE" eval "1+1"
 # "2" → OK. Error → CSP blocked → switch to Playwright
 ```
 
@@ -288,55 +291,56 @@ cmux browser eval "1+1"
 **Login form test:**
 
 ```bash
-cmux browser navigate /login
-cmux browser wait --selector "#email"
-cmux browser fill "#email" "test@example.com"
-cmux browser fill "#password" "password123"
-cmux browser click "button[type='submit']"
-cmux browser wait --url "/dashboard"
-cmux browser snapshot --interactive
+SURFACE=$(cmux browser open https://example.com/login)
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
+cmux browser --surface "$SURFACE" wait --selector "#email"
+cmux browser --surface "$SURFACE" fill "#email" "test@example.com"
+cmux browser --surface "$SURFACE" fill "#password" "password123"
+cmux browser --surface "$SURFACE" click "button[type='submit']"
+cmux browser --surface "$SURFACE" wait --url "/dashboard"
+cmux browser --surface "$SURFACE" snapshot --interactive
 ```
 
 **ReadMe.io SPA documentation:**
 
 ```bash
-cmux browser open https://developers.example.com/reference
+SURFACE=$(cmux browser open https://developers.example.com/reference)
 
 # Step 1
-cmux browser wait --load-state complete --timeout 15
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
 
 # Step 3B — wait for sidebar render (known ReadMe.io structure)
-cmux browser wait --selector "[class*='Sidebar'],[class*='rm-Sidebar'],nav.sidebar" --timeout 15
+cmux browser --surface "$SURFACE" wait --selector "[class*='Sidebar'],[class*='rm-Sidebar'],nav.sidebar" --timeout 15
 
 # Snapshot — now includes sidebar and body content
-cmux browser snapshot --interactive
+cmux browser --surface "$SURFACE" snapshot --interactive
 ```
 
 **Extract API endpoints:**
 
 ```bash
-cmux browser open https://developers.example.com/reference
-cmux browser wait --load-state complete --timeout 15
-cmux browser wait --selector "[data-testid='endpoint-list'], .api-endpoints" --timeout 15
+SURFACE=$(cmux browser open https://developers.example.com/reference)
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
+cmux browser --surface "$SURFACE" wait --selector "[data-testid='endpoint-list'], .api-endpoints" --timeout 15
 
-cmux browser eval "Array.from(document.querySelectorAll('h2,h3')).map(h => h.textContent.trim()).join('\n')"
+cmux browser --surface "$SURFACE" eval "Array.from(document.querySelectorAll('h2,h3')).map(h => h.textContent.trim()).join('\n')"
 ```
 
 ### Phase 3: Assertions
 
 ```bash
-cmux browser is visible --selector "#success-message"
-cmux browser get text --selector "#result"
-cmux browser url
-cmux browser errors list
-cmux browser console list
+cmux browser --surface "$SURFACE" is visible --selector "#success-message"
+cmux browser --surface "$SURFACE" get text --selector "#result"
+cmux browser --surface "$SURFACE" url
+cmux browser --surface "$SURFACE" errors list
+cmux browser --surface "$SURFACE" console list
 ```
 
 ### Phase 4: Cleanup
 
 ```bash
-cmux browser state save /tmp/test-session.json
-cmux browser tab close
+cmux browser --surface "$SURFACE" state save /tmp/test-session.json
+cmux browser --surface "$SURFACE" tab close
 ```
 
 ---
@@ -347,17 +351,18 @@ cmux browser tab close
 
 ```bash
 # Symptom: snapshot returns 2–5 nodes, no nav/content
+# Assumes $SURFACE is set from Phase 1
 
 # Retry 1 — more specific selector
-cmux browser wait --selector "main > section, article, .page-content" --timeout 15
-cmux browser snapshot --interactive
+cmux browser --surface "$SURFACE" wait --selector "main > section, article, .page-content" --timeout 15
+cmux browser --surface "$SURFACE" snapshot --interactive
 
 # Retry 2 — wait for specific text
-cmux browser wait --text "API Reference" --timeout 15
-cmux browser snapshot --interactive
+cmux browser --surface "$SURFACE" wait --text "API Reference" --timeout 15
+cmux browser --surface "$SURFACE" snapshot --interactive
 
 # Retry 3 — query DOM directly via eval
-cmux browser eval "Array.from(document.querySelectorAll('a[href]')).map(a => a.textContent + ' → ' + a.href).join('\n')"
+cmux browser --surface "$SURFACE" eval "Array.from(document.querySelectorAll('a[href]')).map(a => a.textContent + ' → ' + a.href).join('\n')"
 ```
 
 ### Common Failure Patterns
@@ -382,4 +387,5 @@ cmux browser eval "Array.from(document.querySelectorAll('a[href]')).map(a => a.t
 4. **Validate snapshot results** — run `eval` count check; retry with Step 3B if < 10
 5. **Debug on failure** — immediately collect `snapshot --interactive` + `console list` + `errors list`
 6. **Screenshot evidence** — save `screenshot --out /tmp/step-N.png` at key checkpoints
-7. **Fix surface early** — in multi-surface environments, capture surface into `$SURFACE` in Phase 1 and pass `--surface $SURFACE` to every subsequent command
+7. **Always thread the surface** — `cmux browser open` returns the surface handle; capture it with `SURFACE=$(cmux browser open <url>)` and pass `--surface "$SURFACE"` to every subsequent command (only `open`/`open-split`/`new`/`identify` work without it)
+8. **Never swallow SPA hydration timeouts** — `|| true` after a hydration wait silently proceeds with a pre-hydration DOM; instead fall back to Step 3B (`wait --selector`) or emit a warning before continuing
