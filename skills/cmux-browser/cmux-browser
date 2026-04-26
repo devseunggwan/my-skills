@@ -1,9 +1,13 @@
 #!/bin/bash
 # cmux-browser: thin pass-through for `cmux browser` with enhanced error messages
 #
-# When `cmux browser get <type>` is called without --selector, the stock error
-# is "Error: browser get html requires a selector" — no usage hint.  This wrapper
-# intercepts that specific error and appends a usage block with examples.
+# When a `cmux browser` subcommand requires --selector but none is provided,
+# the stock error is a bare one-liner with no usage hint:
+#   Error: browser get html requires a selector
+#   Error: browser click requires a selector
+#
+# This wrapper intercepts any "requires a selector" error and appends a
+# subcommand-specific usage block with examples.
 #
 # Usage (identical to cmux browser):
 #   cmux-browser [--surface <id>] <subcommand> [args]
@@ -26,18 +30,34 @@ cmux browser "$@" 2>"$TMPFILE" || exit_code=$?
 [ "$exit_code" -eq 0 ] && exit 0
 
 if grep -q "requires a selector" "$TMPFILE"; then
-  get_type=$(grep -oE 'get [a-z]+' "$TMPFILE" | head -1 | awk '{print $2}')
-  get_type="${get_type:-<type>}"
+  # Extract subcommand from "Error: browser <subcmd> requires a selector".
+  # sed handles single-token ("click") and two-token ("get html") forms,
+  # as well as hyphenated names ("scroll-into-view").
+  subcmd=$(sed -n 's/.*browser \(.*\) requires a selector.*/\1/p' "$TMPFILE" \
+    | head -1 || true)
+  subcmd="${subcmd:-<subcommand>}"
 
-  printf 'Error: cmux browser get %s requires --selector\n\n' "$get_type" >&2
+  printf 'Error: cmux browser %s requires --selector\n\n' "$subcmd" >&2
   printf 'Usage:\n' >&2
-  printf '  cmux browser <surface> get %s --selector <css>        # first match\n' "$get_type" >&2
-  printf '  cmux browser <surface> get %s --selector <css> --all  # all matches\n\n' "$get_type" >&2
-  printf 'Examples:\n' >&2
-  printf "  cmux browser surface:1 get %s --selector 'h1.title'\n" "$get_type" >&2
-  printf "  cmux browser surface:1 get %s --selector 'a[href]' --all\n\n" "$get_type" >&2
-  printf 'Note: selector can also be passed positionally:\n' >&2
-  printf "  cmux browser surface:1 get %s 'h1.title'\n\n" "$get_type" >&2
+
+  # `get <type>` supports --all and a positional selector.
+  # Action commands (click, hover, type…) take only --selector <css> or <css>.
+  if echo "$subcmd" | grep -q '^get '; then
+    printf '  cmux browser surface:1 %s --selector <css>        # first match\n' "$subcmd" >&2
+    printf '  cmux browser surface:1 %s --selector <css> --all  # all matches\n\n' "$subcmd" >&2
+    printf 'Examples:\n' >&2
+    printf "  cmux browser surface:1 %s --selector 'h1.title'\n" "$subcmd" >&2
+    printf "  cmux browser surface:1 %s --selector 'a[href]' --all\n\n" "$subcmd" >&2
+    printf 'Note: selector can also be passed positionally:\n' >&2
+    printf "  cmux browser surface:1 %s 'h1.title'\n\n" "$subcmd" >&2
+  else
+    printf '  cmux browser surface:1 %s --selector <css>\n' "$subcmd" >&2
+    printf '  cmux browser surface:1 %s <css>               # positional shorthand\n\n' "$subcmd" >&2
+    printf 'Examples:\n' >&2
+    printf "  cmux browser surface:1 %s --selector 'button.submit'\n" "$subcmd" >&2
+    printf "  cmux browser surface:1 %s 'button.submit'\n\n" "$subcmd" >&2
+  fi
+
   printf 'See `cmux browser --help` for all options.\n' >&2
 else
   cat "$TMPFILE" >&2

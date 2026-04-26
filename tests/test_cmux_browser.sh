@@ -74,6 +74,17 @@ if [[ "${1:-}" == "browser" ]]; then
         echo "mock-output-for-${get_type}"
         exit 0
         ;;
+      click|hover|focus|dblclick|check|uncheck|scroll-into-view|highlight|type|fill|select)
+        subcmd="$1"; shift
+        # These cmux subcommands require a positional or --selector arg
+        has_selector=false
+        for arg in "$@"; do
+          case "$arg" in --selector|-s) has_selector=true ;; --*) ;; *) has_selector=true ;; esac
+        done
+        if ! $has_selector; then
+          echo "Error: browser ${subcmd} requires a selector" >&2; exit 1
+        fi
+        echo "mock-output-for-${subcmd}"; exit 0 ;;
       *) break ;;
     esac
     # NOTE: no trailing shift — each case above manages its own shift(s).
@@ -177,7 +188,20 @@ run_wrapper --surface surface:1 get html --selector "body"
 assert_exit         "exit-code:--surface-variant:with-selector"  0  "$_ec"
 assert_not_contains "no-hint:--surface-variant:with-selector"    "Usage:"  "$_stderr"
 
-# ── 5. Non-selector error passes through unchanged ────────────────────────────
+# ── 5. Non-get selector-required subcommands (click, hover, type…) ────────────
+# The wrapper must extract the correct subcommand name, not fall back to "get <type>".
+
+for subcmd in click hover type fill; do
+  run_wrapper surface:1 "$subcmd"
+
+  assert_exit     "exit-code:${subcmd}-missing-selector"    1  "$_ec"
+  assert_contains "hint:--selector:${subcmd}"   "\-\-selector"    "$_stderr"
+  assert_contains "hint:usage:${subcmd}"        "Usage:"          "$_stderr"
+  # Must show the actual subcommand, NOT "get <type>" or "get <subcommand>"
+  assert_contains "hint:subcmd-name:${subcmd}"  "${subcmd}"       "$_stderr"
+done
+
+# ── 6. Non-selector error passes through unchanged ────────────────────────────
 
 run_wrapper surface:999 navigate https://example.com
 assert_contains     "passthrough:non-selector-error:has-not_found"  "not_found"  "$_stderr"
