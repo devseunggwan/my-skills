@@ -144,7 +144,7 @@ cmux browser eval 'document.querySelectorAll("a[href],h1,h2,h3,button,nav,articl
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `click <selector>` | Click element | `cmux browser click "button:has-text('Submit')"` |
+| `click <selector>` | Click element | `cmux browser click "button[type='submit']"` |
 | `dblclick <selector>` | Double-click | `cmux browser dblclick ".editable-cell"` |
 | `hover <selector>` | Mouse hover | `cmux browser hover ".tooltip-trigger"` |
 | `focus <selector>` | Focus element | `cmux browser focus "#email"` |
@@ -266,7 +266,10 @@ IS_SPA=$(cmux browser eval '!!(window.__NEXT_DATA__||window.__NUXT__||window.__r
 if [ "$IS_SPA" = "true" ]; then
   cmux browser wait --function 'document.readyState==="complete" && document.body.innerText.length>200 && document.querySelectorAll("a[href],button").length>5 && !document.querySelector("[aria-busy=true],[data-loading=true]")' --timeout 10 || true
 else
-  cmux browser wait --function 'document.readyState==="complete"' --timeout 3 || true
+  # SPA not detected, but run a short content-density check as a safety net —
+  # markers can be missing on custom React/Vite builds; readyState is already
+  # satisfied so a bare readyState check is a no-op here
+  cmux browser wait --function 'document.body.innerText.length>50 && document.querySelectorAll("a[href],button").length>2' --timeout 5 || true
 fi
 
 # 3. Snapshot
@@ -289,7 +292,7 @@ cmux browser navigate /login
 cmux browser wait --selector "#email"
 cmux browser fill "#email" "test@example.com"
 cmux browser fill "#password" "password123"
-cmux browser click "button:has-text('Login')"
+cmux browser click "button[type='submit']"
 cmux browser wait --url "/dashboard"
 cmux browser snapshot --interactive
 ```
