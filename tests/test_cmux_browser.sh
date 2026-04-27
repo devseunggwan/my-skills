@@ -188,18 +188,41 @@ run_wrapper --surface surface:1 get html --selector "body"
 assert_exit         "exit-code:--surface-variant:with-selector"  0  "$_ec"
 assert_not_contains "no-hint:--surface-variant:with-selector"    "Usage:"  "$_stderr"
 
-# ── 5. Non-get selector-required subcommands (click, hover, type…) ────────────
-# The wrapper must extract the correct subcommand name, not fall back to "get <type>".
+# ── 5. Non-get selector-required subcommands ──────────────────────────────────
 
-for subcmd in click hover type fill; do
+# 5a. Action commands (click, hover): selector only, no payload
+for subcmd in click hover; do
   run_wrapper surface:1 "$subcmd"
 
-  assert_exit     "exit-code:${subcmd}-missing-selector"    1  "$_ec"
-  assert_contains "hint:--selector:${subcmd}"   "\-\-selector"    "$_stderr"
-  assert_contains "hint:usage:${subcmd}"        "Usage:"          "$_stderr"
-  # Must show the actual subcommand, NOT "get <type>" or "get <subcommand>"
-  assert_contains "hint:subcmd-name:${subcmd}"  "${subcmd}"       "$_stderr"
+  assert_exit     "exit-code:${subcmd}-missing-selector"   1  "$_ec"
+  assert_contains "hint:--selector:${subcmd}"  "\-\-selector"  "$_stderr"
+  assert_contains "hint:usage:${subcmd}"       "Usage:"        "$_stderr"
+  assert_contains "hint:subcmd-name:${subcmd}" "${subcmd}"     "$_stderr"
 done
+
+# 5b. type/fill: hint must include --text payload
+for subcmd in type fill; do
+  run_wrapper surface:1 "$subcmd"
+
+  assert_exit     "exit-code:${subcmd}-missing-selector"   1  "$_ec"
+  assert_contains "hint:--selector:${subcmd}"  "\-\-selector"  "$_stderr"
+  assert_contains "hint:text-payload:${subcmd}" "\-\-text"     "$_stderr"
+  assert_contains "hint:subcmd-name:${subcmd}" "${subcmd}"     "$_stderr"
+done
+
+# 5c. select: hint must include --value payload
+run_wrapper surface:1 select
+
+assert_exit     "exit-code:select-missing-selector"   1  "$_ec"
+assert_contains "hint:--selector:select"  "\-\-selector"  "$_stderr"
+assert_contains "hint:value-payload:select" "\-\-value"   "$_stderr"
+
+# 5d. get attr: hint must include both --selector and --attr
+run_wrapper surface:1 get attr
+
+assert_exit     "exit-code:get-attr-missing-selector"  1  "$_ec"
+assert_contains "hint:--selector:get-attr"  "\-\-selector"  "$_stderr"
+assert_contains "hint:--attr:get-attr"      "\-\-attr"      "$_stderr"
 
 # ── 6. Non-selector error passes through unchanged ────────────────────────────
 
