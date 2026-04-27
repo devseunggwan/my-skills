@@ -177,7 +177,8 @@ cmux browser eval 'document.querySelectorAll("a[href],h1,h2,h3,button,nav,articl
 |---------|-------------|---------|
 | `wait --selector <css>` | Wait for selector to appear | `cmux browser wait --selector ".loaded"` |
 | `wait --text <text>` | Wait for text to appear | `cmux browser wait --text "Done"` |
-| `wait --url <pattern>` | Wait for URL change | `cmux browser wait --url "/dashboard"` |
+| `wait --url <exact-url>` | Wait for exact URL match | `cmux browser wait --url "https://example.com/dashboard"` |
+| `wait --url-contains <text>` | Wait for URL to contain substring | `cmux browser wait --url-contains "/dashboard"` |
 | `wait --load-state complete` | Wait for document.readyState complete | `cmux browser wait --load-state complete` |
 | `wait --load-state interactive` | Wait for DOM parsed | `cmux browser wait --load-state interactive` |
 | `wait --function <js>` | Wait for JS condition | `cmux browser wait --function '!!window.__APP_READY__'` |
@@ -236,8 +237,8 @@ cmux browser --surface $SURFACE snapshot --interactive
 `cmux browser` uses `eval()` internally — CSP can block all commands:
 
 ```bash
-# 1. HTTP response header
-curl -sI <target-url> | grep -i content-security-policy
+# 1. HTTP response header — use -L to follow redirects (http→https, bare domain→www, etc.)
+curl -sIL <target-url> | grep -i content-security-policy
 
 # 2. meta tag CSP (SPAs often inject this via JS bundle)
 SURFACE=$(cmux browser open <target-url>)
@@ -272,7 +273,10 @@ if [ "$IS_SPA" = "true" ]; then
     echo "Warning: hydration wait timed out — snapshot may reflect pre-hydration state; consider Step 3B with a known selector"
 else
   # SPA not detected; lightweight check as safety net for undetected SPAs
-  cmux browser --surface "$SURFACE" wait --function 'document.body.innerText.length>50 && document.querySelectorAll("a[href],button").length>2' --timeout 5 || true
+  # (custom React/Vite apps may have no framework markers but still hydrate late)
+  cmux browser --surface "$SURFACE" wait --function 'document.body.innerText.length>50 && document.querySelectorAll("a[href],button").length>2' --timeout 5 || \
+    cmux browser --surface "$SURFACE" wait --selector "main,article,nav,[role='main']" --timeout 5 || \
+    echo "Warning: hydration wait timed out — snapshot may reflect pre-hydration state; consider Step 3B with a known selector"
 fi
 
 # 3. Snapshot
@@ -297,7 +301,7 @@ cmux browser --surface "$SURFACE" wait --selector "#email"
 cmux browser --surface "$SURFACE" fill "#email" "test@example.com"
 cmux browser --surface "$SURFACE" fill "#password" "password123"
 cmux browser --surface "$SURFACE" click "button[type='submit']"
-cmux browser --surface "$SURFACE" wait --url "/dashboard"
+cmux browser --surface "$SURFACE" wait --url-contains "/dashboard"
 cmux browser --surface "$SURFACE" snapshot --interactive
 ```
 
