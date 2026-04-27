@@ -275,7 +275,11 @@ curl -sL <target-url> | grep -i 'content-security-policy'
 
 # 3. Quick eval probe — the most reliable live gate once the page is open
 #    Open here and reuse $SURFACE in Phase 1 — do NOT open the same URL again
+# Inside cmux:
 SURFACE=$(cmux browser open <target-url> | grep -oE 'surface:[0-9]+')
+# Outside cmux (standalone shell / CI):
+# WORKSPACE_ID=<id>  # get from: cmux list-workspaces
+# SURFACE=$(cmux browser open <target-url> --workspace "$WORKSPACE_ID" | grep -oE 'surface:[0-9]+')
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout 10
 cmux browser --surface "$SURFACE" eval "1+1"
 # "2" → eval works, proceed. Any error → CSP blocked → switch to Playwright
@@ -441,7 +445,7 @@ cmux browser --surface "$SURFACE" eval "Array.from(document.querySelectorAll('a[
 1. **Run SPA Hydration Wait Protocol before any DOM-dependent action** (Iron Law)
 2. **Verify after each step** — check state with `snapshot --interactive` or `is` after commands
 3. **Wait before acting** — always `wait --selector` or `wait --load-state complete` before click/fill
-4. **Validate snapshot results** — run `eval` count check; retry with Step 3B if < 10
+4. **Validate snapshot results** — run `eval` count check; retry if < 3 (truly empty shell); sparse pages like login/OTP are valid at 3–8 elements
 5. **Debug on failure** — immediately collect `snapshot --interactive` + `console list` + `errors list`
 6. **Screenshot evidence** — save `screenshot --out /tmp/step-N.png` at key checkpoints
 7. **Always thread the surface** — `cmux browser open` outputs `OK surface:N workspace:M`; extract the ref with `SURFACE=$(cmux browser open <url> | grep -oE 'surface:[0-9]+')` and pass `--surface "$SURFACE"` to every subsequent command (only `open`/`open-split`/`new`/`identify` work without it)
