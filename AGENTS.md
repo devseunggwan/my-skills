@@ -376,11 +376,20 @@ build run. No skill, hook, or existing-platform changes required.
 ### Canonical clone path
 
 This repository should live at **`~/projects/praxis`**. The CLI tools shipped
-by skills (e.g. `cmux-recover-sessions`, `claude-recover`, `cmux-save-sessions`)
-are symlinked from `~/.local/bin` into this clone, so patches you commit here
-land in the version that actually runs at the shell. Keeping a second clone
-under a legacy name risks `~/.local/bin` symlinks pointing at stale code —
-a real failure mode previously hit during recover-sessions debugging.
+by skills (e.g. `cmux-recover-sessions`, `claude-recover`, `cmux-save-sessions`,
+`cmux-browser`) are symlinked from `~/.local/bin` into this clone, so patches
+you commit here land in the version that actually runs at the shell. Keeping a
+second clone under a legacy name risks `~/.local/bin` symlinks pointing at stale
+code — a real failure mode previously hit during recover-sessions debugging.
+
+### CLI tools (not skills)
+
+These are shell wrappers installed via `scripts/install.sh` into `~/.local/bin`.
+They are not AI skills — they have no `SKILL.md` and cannot be invoked as `/praxis:*`.
+
+| Binary | Source | Purpose |
+|--------|--------|---------|
+| `cmux-browser` | `skills/cmux-browser/cmux-browser` | Pass-through for `cmux browser`; intercepts selector-missing errors and adds subcommand-specific usage hints |
 
 ### Install / refresh CLI symlinks
 
