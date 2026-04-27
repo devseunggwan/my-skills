@@ -1,14 +1,6 @@
 ---
 name: cmux-browser
 description: "Browser automation E2E testing via cmux browser CLI — navigation, form input, click, state verification with SPA hydration wait. Triggers on \"cmux browser\", \"cmux 브라우저\"."
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - AskUserQuestion
 ---
 
 # cmux Browser E2E Test
