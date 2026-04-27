@@ -200,15 +200,17 @@ for subcmd in click hover; do
   assert_contains "hint:subcmd-name:${subcmd}" "${subcmd}"     "$_stderr"
 done
 
-# 5b. type/fill: hint must include --text payload
-for subcmd in type fill; do
-  run_wrapper surface:1 "$subcmd"
+# 5b. type: hint must include --text payload (binary errors without text too)
+run_wrapper surface:1 type
+assert_exit     "exit-code:type-missing-selector"   1  "$_ec"
+assert_contains "hint:--selector:type"   "\-\-selector"  "$_stderr"
+assert_contains "hint:text-payload:type" "\-\-text"      "$_stderr"
 
-  assert_exit     "exit-code:${subcmd}-missing-selector"   1  "$_ec"
-  assert_contains "hint:--selector:${subcmd}"  "\-\-selector"  "$_stderr"
-  assert_contains "hint:text-payload:${subcmd}" "\-\-text"     "$_stderr"
-  assert_contains "hint:subcmd-name:${subcmd}" "${subcmd}"     "$_stderr"
-done
+# 5c. fill: selector only — text is optional and not enforced by the binary
+run_wrapper surface:1 fill
+assert_exit         "exit-code:fill-missing-selector"   1  "$_ec"
+assert_contains     "hint:--selector:fill"   "\-\-selector"  "$_stderr"
+assert_not_contains "no-text-hint:fill"      "\-\-text"      "$_stderr"
 
 # 5c. select: hint must include --value payload
 run_wrapper surface:1 select
