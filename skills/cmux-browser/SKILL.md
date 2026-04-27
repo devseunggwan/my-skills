@@ -39,12 +39,15 @@ the empty shell/skeleton tree — exactly the pre-hydration state.
 
 ## SPA Hydration Wait Protocol
 
-Run this sequence **before every snapshot** (and before the first DOM-dependent action on a new page):
+Run this sequence **before every snapshot** (and before the first DOM-dependent action on a new page).
+All commands after `open` require `--surface "$SURFACE"` — capture it once and thread it through every step.
 
-### Step 1 — Load State Wait
+### Step 1 — Open and Load State Wait
 
 ```bash
-cmux browser wait --load-state complete --timeout 15
+# Capture surface handle at open time — only open/open-split/new/identify work without it
+SURFACE=$(cmux browser open <target-url>)
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
 ```
 
 Network-level load gate. Necessary but not sufficient for SPAs.
@@ -52,7 +55,7 @@ Network-level load gate. Necessary but not sufficient for SPAs.
 ### Step 2 — SPA Auto-detect
 
 ```bash
-cmux browser eval '!!(window.__NEXT_DATA__||window.__NUXT__||window.__remixContext||window.__SVELTEKIT_DATA__||window.___gatsby||window.__INITIAL_STATE__||window.ng||document.querySelector("[data-reactroot],[data-v-app],[data-server-rendered],[ng-version],[data-svelte-h],[q\\:container]"))'
+cmux browser --surface "$SURFACE" eval '!!(window.__NEXT_DATA__||window.__NUXT__||window.__remixContext||window.__SVELTEKIT_DATA__||window.___gatsby||window.__INITIAL_STATE__||window.ng||document.querySelector("[data-reactroot],[data-v-app],[data-server-rendered],[ng-version],[data-svelte-h],[q\\:container]"))'
 ```
 
 - Output `true` → SPA framework detected → proceed to Step 3A or 3B
@@ -65,7 +68,7 @@ Wait until real content is rendered into the DOM:
 
 ```bash
 # Single-quote JS string — no shell escaping issues with inner double-quotes
-cmux browser wait --function 'document.readyState==="complete" && document.body.innerText.length>200 && document.querySelectorAll("a[href],button").length>5 && !document.querySelector("[aria-busy=true],[data-loading=true]")' --timeout 10
+cmux browser --surface "$SURFACE" wait --function 'document.readyState==="complete" && document.body.innerText.length>200 && document.querySelectorAll("a[href],button").length>5 && !document.querySelector("[aria-busy=true],[data-loading=true]")' --timeout 10
 ```
 
 - `innerText.length > 200` — actual text content rendered (DOM node count is unreliable; loading skeletons can produce 50–100+ nodes before hydration)
@@ -79,13 +82,13 @@ Wait for a known element to appear. Use when you know the site's DOM structure:
 
 ```bash
 # Navigation rendered
-cmux browser wait --selector "nav, aside, [role='navigation']" --timeout 10
+cmux browser --surface "$SURFACE" wait --selector "nav, aside, [role='navigation']" --timeout 10
 
 # Content container non-empty
-cmux browser wait --selector "main article, .content > *:not(:empty)" --timeout 10
+cmux browser --surface "$SURFACE" wait --selector "main article, .content > *:not(:empty)" --timeout 10
 
 # Specific text appeared
-cmux browser wait --text "API Reference" --timeout 10
+cmux browser --surface "$SURFACE" wait --text "API Reference" --timeout 10
 ```
 
 Use Step 3B when the target site is known. Fall back to Step 3A + snapshot validation otherwise.
@@ -93,7 +96,7 @@ Use Step 3B when the target site is known. Fall back to Step 3A + snapshot valid
 ### Step 4 — Snapshot
 
 ```bash
-cmux browser snapshot --interactive
+cmux browser --surface "$SURFACE" snapshot --interactive
 ```
 
 ### Snapshot Result Validation (required)
@@ -101,7 +104,7 @@ cmux browser snapshot --interactive
 After snapshot, quantitatively verify hydration is complete:
 
 ```bash
-cmux browser eval 'document.querySelectorAll("a[href],h1,h2,h3,button,nav,article").length'
+cmux browser --surface "$SURFACE" eval 'document.querySelectorAll("a[href],h1,h2,h3,button,nav,article").length'
 ```
 
 - **< 10** → likely pre-hydration capture → retry with Step 3B or increase timeout
@@ -237,16 +240,22 @@ cmux browser --surface $SURFACE snapshot --interactive
 `cmux browser` uses `eval()` internally — CSP can block all commands:
 
 ```bash
-# 1. HTTP response header — use -L to follow redirects (http→https, bare domain→www, etc.)
+# 1. HTTP response headers — -L follows redirects (http→https, bare domain→www, etc.)
 curl -sIL <target-url> | grep -i content-security-policy
 
-# 2. meta tag CSP (SPAs often inject this via JS bundle)
+# 2. meta tag CSP — fetch HTML body with curl (NOT via cmux browser eval, which is itself
+#    blocked when the meta CSP omits unsafe-eval, creating a circular dependency)
+curl -sL <target-url> | grep -i 'content-security-policy'
+
+# 3. Quick eval probe — the most reliable live gate once the page is open
 SURFACE=$(cmux browser open <target-url>)
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout 10
-cmux browser --surface "$SURFACE" eval 'document.querySelector("meta[http-equiv=\"Content-Security-Policy\"]")?.content || "no meta CSP"'
+cmux browser --surface "$SURFACE" eval "1+1"
+# "2" → eval works, proceed. Any error → CSP blocked → switch to Playwright
 ```
 
-If `script-src` is present without `unsafe-eval` → ⚠️ eval/click blocked → switch to Playwright.
+If `script-src` is present without `unsafe-eval` in steps 1 or 2 → ⚠️ likely blocked.
+If step 3 eval probe errors → confirmed blocked → switch to Playwright.
 If no CSP or `unsafe-eval` is included → proceed.
 
 ### Phase 1: Setup with SPA Hydration Wait
