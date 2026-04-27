@@ -27,7 +27,10 @@ trap 'rm -f "$TMPFILE"' EXIT
 # exists, so $? after the if block would be 0 regardless of cmux's exit code.
 exit_code=0
 cmux browser "$@" 2>"$TMPFILE" || exit_code=$?
-[ "$exit_code" -eq 0 ] && exit 0
+if [ "$exit_code" -eq 0 ]; then
+  cat "$TMPFILE" >&2  # replay any warnings cmux wrote to stderr on success
+  exit 0
+fi
 
 if grep -q "requires a selector" "$TMPFILE"; then
   # Extract subcommand from "Error: browser <subcmd> requires a selector".

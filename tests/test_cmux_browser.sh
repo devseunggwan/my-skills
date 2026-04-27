@@ -76,10 +76,19 @@ if [[ "${1:-}" == "browser" ]]; then
         ;;
       click|hover|focus|dblclick|check|uncheck|scroll-into-view|highlight|type|fill|select)
         subcmd="$1"; shift
-        # These cmux subcommands require a positional or --selector arg
+        # These cmux subcommands require --selector (or a positional CSS value).
+        # --text/--value/--attr/--index values must NOT count as selectors — they
+        # are payload flags whose values are consumed by the next iteration.
         has_selector=false
+        skip_next=false
         for arg in "$@"; do
-          case "$arg" in --selector|-s) has_selector=true ;; --*) ;; *) has_selector=true ;; esac
+          if $skip_next; then skip_next=false; continue; fi
+          case "$arg" in
+            --selector|-s) has_selector=true; skip_next=true ;;
+            --text|--value|--attr|--property|--index|--name) skip_next=true ;;
+            --*) ;;
+            *) has_selector=true ;;  # positional CSS selector
+          esac
         done
         if ! $has_selector; then
           echo "Error: browser ${subcmd} requires a selector" >&2; exit 1
@@ -225,6 +234,16 @@ run_wrapper surface:1 get attr
 assert_exit     "exit-code:get-attr-missing-selector"  1  "$_ec"
 assert_contains "hint:--selector:get-attr"  "\-\-selector"  "$_stderr"
 assert_contains "hint:--attr:get-attr"      "\-\-attr"      "$_stderr"
+
+# 5e. Payload-without-selector: --text/--value must NOT suppress the selector hint
+# (mock bug would treat these as selectors and return success — this verifies the fix)
+run_wrapper surface:1 type --text "hello"
+assert_exit     "exit-code:type-payload-no-selector"  1  "$_ec"
+assert_contains "hint:type-payload-no-selector"  "\-\-selector"  "$_stderr"
+
+run_wrapper surface:1 select --value "option-a"
+assert_exit     "exit-code:select-payload-no-selector"  1  "$_ec"
+assert_contains "hint:select-payload-no-selector"  "\-\-selector"  "$_stderr"
 
 # ── 6. Non-selector error passes through unchanged ────────────────────────────
 
