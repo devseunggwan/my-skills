@@ -42,9 +42,16 @@ the empty shell/skeleton tree — exactly the pre-hydration state.
 Run this sequence **before every snapshot** (and before the first DOM-dependent action on a new page).
 All commands after `open` require `--surface "$SURFACE"` — capture it once and thread it through every step.
 
+> **Prerequisite:** `cmux browser` requires an active cmux workspace.
+> Verify before running: `[ -n "$CMUX_WORKSPACE_ID" ] || { echo "Error: not inside a cmux workspace" >&2; exit 1; }`
+> If running outside cmux, pass `--workspace <id>` explicitly to `cmux browser open`.
+
 ### Step 1 — Open and Load State Wait
 
 ```bash
+# Preflight: confirm cmux workspace is active
+[ -n "$CMUX_WORKSPACE_ID" ] || { echo "Error: not inside a cmux workspace — set CMUX_WORKSPACE_ID or pass --workspace" >&2; exit 1; }
+
 # Capture surface handle at open time — only open/open-split/new/identify work without it
 SURFACE=$(cmux browser open <target-url>)
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
@@ -287,14 +294,18 @@ IS_SPA=$(cmux browser --surface "$SURFACE" eval '!!(window.__NEXT_DATA__||window
 # On timeout, fall back to selector-based wait (Step 3B) rather than silently continuing —
 # proceeding after a failed hydration wait captures the pre-hydration shell
 if [ "$IS_SPA" = "true" ]; then
+  # Primary: content-density check (innerText + interactive elements)
   cmux browser --surface "$SURFACE" wait --function 'document.readyState==="complete" && document.body.innerText.length>200 && document.querySelectorAll("a[href],button").length>5 && !document.querySelector("[aria-busy=true],[data-loading=true]")' --timeout 10 || \
-    cmux browser --surface "$SURFACE" wait --selector "main,article,nav,[role='main']" --timeout 10 || \
+    # Fallback: lower-threshold content check — NOT a bare structural selector
+    # (main/article/nav exist in pre-hydration shell; we need filled content)
+    cmux browser --surface "$SURFACE" wait --function 'document.body.innerText.length>100 && document.querySelectorAll("a[href]").length>3' --timeout 10 || \
     { echo "Error: hydration wait timed out on a detected SPA — provide an explicit selector via Step 3B and retry" >&2; exit 1; }
 else
-  # SPA not detected; lightweight check as safety net for undetected SPAs
+  # SPA not detected; lightweight content check as safety net for undetected SPAs
   # (custom React/Vite apps may have no framework markers but still hydrate late)
+  # NOT a bare structural selector — main/nav exist even before hydration
   cmux browser --surface "$SURFACE" wait --function 'document.body.innerText.length>50 && document.querySelectorAll("a[href],button").length>2' --timeout 5 || \
-    cmux browser --surface "$SURFACE" wait --selector "main,article,nav,[role='main']" --timeout 5 || \
+    cmux browser --surface "$SURFACE" wait --function 'document.body.innerText.length>30' --timeout 5 || \
     { echo "Error: hydration wait timed out — page may be an undetected SPA; provide an explicit selector via Step 3B and retry" >&2; exit 1; }
 fi
 
@@ -323,12 +334,17 @@ cmux browser --surface "$SURFACE" eval "1+1"
 ```bash
 # $SURFACE is set from Phase 0/1 — navigate within the same surface
 cmux browser --surface "$SURFACE" navigate https://example.com/login
+# Re-apply hydration wait after every navigate — destination page may still be hydrating
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
+cmux browser --surface "$SURFACE" wait --function 'document.body.innerText.length>50 && document.querySelectorAll("a[href],button,input").length>2' --timeout 10 || true
 cmux browser --surface "$SURFACE" wait --selector "#email"
 cmux browser --surface "$SURFACE" fill "#email" "test@example.com"
 cmux browser --surface "$SURFACE" fill "#password" "password123"
 cmux browser --surface "$SURFACE" click "button[type='submit']"
+# After submit, destination route also needs hydration wait before snapshot
 cmux browser --surface "$SURFACE" wait --url-contains "/dashboard"
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
+cmux browser --surface "$SURFACE" wait --function 'document.body.innerText.length>100 && document.querySelectorAll("a[href],button").length>3' --timeout 10 || true
 cmux browser --surface "$SURFACE" snapshot --interactive
 ```
 
