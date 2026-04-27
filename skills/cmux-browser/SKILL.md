@@ -258,6 +258,7 @@ curl -sIL <target-url> | grep -i content-security-policy
 curl -sL <target-url> | grep -i 'content-security-policy'
 
 # 3. Quick eval probe — the most reliable live gate once the page is open
+#    Open here and reuse $SURFACE in Phase 1 — do NOT open the same URL again
 SURFACE=$(cmux browser open <target-url>)
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout 10
 cmux browser --surface "$SURFACE" eval "1+1"
@@ -271,9 +272,8 @@ If no CSP or `unsafe-eval` is included → proceed.
 ### Phase 1: Setup with SPA Hydration Wait
 
 ```bash
-# 1. Open URL and capture the surface handle — required for all subsequent commands
-# (only open/open-split/new/identify work without an explicit surface)
-SURFACE=$(cmux browser open <target-url>)
+# $SURFACE is already set from Phase 0 — reuse it, do NOT open again
+# (reopening creates an orphaned surface and bypasses the CSP probe)
 
 # 2. SPA Hydration Wait Protocol
 
@@ -281,7 +281,7 @@ SURFACE=$(cmux browser open <target-url>)
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
 
 # Step 2: detect SPA (output: "true" or "false")
-IS_SPA=$(cmux browser --surface "$SURFACE" eval '!!(window.__NEXT_DATA__||window.__NUXT__||window.__remixContext||window.__SVELTEKIT_DATA__||window.___gatsby||window.__INITIAL_STATE__||window.ng||document.querySelector("[data-reactroot],[data-v-app],[data-server-rendered],[ng-version],[data-svelte-h]"))' 2>/dev/null | tr -d '"' | tr -d ' \n')
+IS_SPA=$(cmux browser --surface "$SURFACE" eval '!!(window.__NEXT_DATA__||window.__NUXT__||window.__remixContext||window.__SVELTEKIT_DATA__||window.___gatsby||window.__INITIAL_STATE__||window.ng||document.querySelector("[data-reactroot],[data-v-app],[data-server-rendered],[ng-version],[data-svelte-h],[q\\:container]"))' 2>/dev/null | tr -d '"' | tr -d ' \n')
 
 # Step 3A: content-density wait
 # On timeout, fall back to selector-based wait (Step 3B) rather than silently continuing —
@@ -321,7 +321,8 @@ cmux browser --surface "$SURFACE" eval "1+1"
 **Login form test:**
 
 ```bash
-SURFACE=$(cmux browser open https://example.com/login)
+# $SURFACE is set from Phase 0/1 — navigate within the same surface
+cmux browser --surface "$SURFACE" navigate https://example.com/login
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
 cmux browser --surface "$SURFACE" wait --selector "#email"
 cmux browser --surface "$SURFACE" fill "#email" "test@example.com"
@@ -334,9 +335,8 @@ cmux browser --surface "$SURFACE" snapshot --interactive
 **ReadMe.io SPA documentation:**
 
 ```bash
-SURFACE=$(cmux browser open https://developers.example.com/reference)
-
-# Step 1
+# Navigate within the Phase 0/1 surface — do not open a new one
+cmux browser --surface "$SURFACE" navigate https://developers.example.com/reference
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
 
 # Step 3B — wait for sidebar render (known ReadMe.io structure)
@@ -349,7 +349,7 @@ cmux browser --surface "$SURFACE" snapshot --interactive
 **Extract API endpoints:**
 
 ```bash
-SURFACE=$(cmux browser open https://developers.example.com/reference)
+cmux browser --surface "$SURFACE" navigate https://developers.example.com/reference
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout 15
 cmux browser --surface "$SURFACE" wait --selector "[data-testid='endpoint-list'], .api-endpoints" --timeout 15
 
