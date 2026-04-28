@@ -45,8 +45,9 @@ Optional `--model` is forwarded to `/codex:review` unchanged.
 git worktree list --porcelain
 ```
 
-Parse output into a list of `{path, branch, HEAD}` entries.
-Filter out bare worktrees (no checked-out branch) — they are not review targets.
+Parse output into a list of `{path, branch, HEAD, detached}` entries.
+Filter out entries with the explicit `bare` marker — they have no working tree.
+Keep detached worktrees (no `branch` line but no `bare` marker) as valid review targets.
 
 Expected output shape per entry:
 ```
@@ -57,6 +58,10 @@ branch refs/heads/<branch-name>
 worktree /path/to/repo-wt/feature-xyz
 HEAD <sha>
 branch refs/heads/feature-xyz
+
+worktree /path/to/repo-wt/detached-xyz
+HEAD <sha>
+detached
 ```
 
 ### Step 2: Disambiguation Gate
