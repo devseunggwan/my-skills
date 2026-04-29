@@ -305,29 +305,28 @@ For each approved action:
    - Present the draft to user for review BEFORE any edit
    - Apply only with explicit approval ("yes, add this rule")
 
-4. **Upstream feedback** → Resolve the tool's **backing repo first**, then create a labeled issue there. Never hardcode `devseunggwan/praxis` for all tool friction — that misroutes company MCP defects, CLI defects, etc.
+4. **Upstream feedback** → Resolve the tool's **backing repo first** (do NOT hardcode any specific repo), then create a labeled issue there. Hardcoding misroutes plugin defects, custom MCP defects, dotfiles defects across user environments.
 
    **Backing repo resolution (MUST do BEFORE issue creation):**
 
-   | Tool name / layer | Backing repo |
+   | Tool name / layer pattern | Backing repo resolution |
    |---|---|
-   | `mcp__praxis*` or skill in praxis itself | `devseunggwan/praxis` |
-   | `mcp__plugin_oh-my-claudecode_*` or OMC skill | OMC source repo (e.g., `Yeachan-Heo/oh-my-claudecode`) |
-   | `mcp__<service>-*` (company MCP — e.g., `laplace-airflow`, `laplace-k8s`, `laplace-trino`) | company MCP host repo (e.g., `laplacetec/laplace-data-platform-mcp`) |
-   | Hook in user dotfiles (`.claude/hooks/*`) or global CLAUDE.md | the dotfiles backing repo (verify via `ls -la` symlink — e.g., `devseunggwan/ai-dotfiles`) |
-   | CLI tool (`gh`, `kubectl`, etc.) | typically outside user control — fall back to `note only` or local workaround |
-   | Builtin tool (Read/Edit/Bash/Grep) | typically not actionable — `note only` |
-   | Other / ambiguous | ask the user; default to `devseunggwan/praxis` ONLY when nothing else fits |
+   | `mcp__<plugin>__*` from a Claude Code plugin | Read `repository` field from that plugin's `.claude-plugin/plugin.json` (or equivalent manifest) |
+   | `mcp__<service>-*` from a custom/team MCP server | The MCP server's source repo — `git remote -v` of the server's directory, or read its package manifest |
+   | Skill within the praxis distribution itself | The praxis source repo this skill was installed from — read `repository` field in praxis's own plugin manifest |
+   | Hook in `~/.claude/hooks/` or a globally symlinked CLAUDE.md/AGENTS.md | The user's dotfiles backing repo — resolve via `ls -la` symlink chain, then `git remote -v` of the target dir |
+   | CLI tool (e.g., `gh`, `kubectl`) | The CLI's open-source upstream if accessible; otherwise `note only` |
+   | Builtin tool (Read/Edit/Bash/Grep) | Typically not actionable — `note only` |
+   | Other / ambiguous | Ask the user; do NOT fall back to a hardcoded repo |
 
-   For company repos, also check the `feature-repo mapping` in the project CLAUDE.md (if present) before assuming a repo.
+   If the active project's CLAUDE.md provides a feature-to-repo mapping, consult it before deciding a repo.
 
    **Then create the issue (using the resolved backing repo):**
    - Title: `{type}({tool_layer}): {friction description}` (Conventional Commits format)
-   - Label: `tool-friction:*` labels are praxis-specific. Apply rules per backing repo:
-     - praxis → `tool-friction:{layer}` (`tool-friction:mcp` / `:cli` / `:builtin` / `:skill`); auto-create with `gh label create "tool-friction:{layer}" --repo devseunggwan/praxis` if missing
-     - non-praxis (company / OMC / dotfiles) → use that repo's existing labels (e.g., `bug`, `enhancement`); do NOT auto-create the praxis-style label there
+   - Label: `tool-friction:{layer}` is praxis's own convention. Apply it ONLY when the resolved backing repo is the praxis distribution itself. For any other backing repo, use that repo's existing label conventions (e.g., `bug`, `enhancement`); do NOT auto-create praxis-style labels in unrelated repos.
+   - If `tool-friction:*` is needed and missing in the praxis repo: `gh label create "tool-friction:{layer}" --repo <resolved-praxis-repo>`
    - Body: include evidence, expected behavior, proposed fix direction from step 4b finding
-   - Command: `gh issue create --repo {resolved_backing_repo} --title "$TITLE" --label "$LABEL" --body "$BODY"` — substitute the resolved repo, never hardcode
+   - Command: `gh issue create --repo <resolved_backing_repo> --title "$TITLE" --label "$LABEL" --body "$BODY"` — substitute the resolved repo, never hardcode
    - **Verification (mandatory):** issue URL is returned, `gh issue view {url}` succeeds, AND the URL's repo matches the resolved backing repo (catches misrouting)
 
 5. **Skill idea note** → Write to `{current_project}/.omc/plans/retrospect-skill-idea-{slug}.md`
