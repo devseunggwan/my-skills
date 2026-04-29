@@ -118,13 +118,13 @@ You MUST complete each stage before proceeding to the next.
 
    | Layer | Examples | Friction signals |
    |-------|----------|-----------------|
-   | `mcp` | laplace-airflow, laplace-trino, signoz, slack MCP | Slow response, missing field, schema mismatch, timeout |
-   | `cli` | gh, kubectl, hubctl, omc, codex, gemini | Missing flag/option, undocumented behavior, workaround needed |
+   | `mcp` | any custom or third-party MCP server (data warehouse, observability, chat, infra, etc.) | Slow response, missing field, schema mismatch, timeout |
+   | `cli` | `gh`, `kubectl`, `git`, plus project-specific CLIs | Missing flag/option, undocumented behavior, workaround needed |
    | `builtin` | Read/Edit/Bash/Grep/Glob, Agent, hooks | Environmental constraint, permission issue, output truncation |
-   | `skill` | OMC/laplace-dev-hub/praxis skills, subagents | Stage boundary unclear, trigger mismatch, prompt defect, wrong routing |
+   | `skill` | praxis / OMC / project-specific skills and subagents | Stage boundary unclear, trigger mismatch, prompt defect, wrong routing |
 
    **For each tool friction event, record:**
-   - `tool_name`: specific tool (e.g., "gh CLI", "laplace-airflow MCP", "turbo-setup skill")
+   - `tool_name`: specific tool (e.g., "gh CLI", "<plugin-name> MCP", "<skill-name> skill")
    - `layer`: mcp / cli / builtin / skill
    - `friction_type`: missing feature, design defect, documentation gap, performance issue, integration mismatch
    - `evidence`: the specific moment (quote or paraphrase)
@@ -178,7 +178,7 @@ You MUST complete each stage before proceeding to the next.
    | Repeat (3x+) | hook or skill | Multiple memory entries = enforcement gap |
    | Missing rule (new) | CLAUDE.md draft | No rule exists for this pattern |
    | Missing rule + Repeat | CLAUDE.md draft + GitHub issue | Missing rule caused repeat — add rule + compliance issue |
-   | Tool friction (step 4b finding) | upstream feedback | Tool improvement needed — praxis repo issue with `tool-friction:{layer}` label |
+   | Tool friction (step 4b finding) | upstream feedback | Tool improvement needed — issue in the tool's **backing repo** (resolve via Stage 4 Action 4 routing table; not always praxis) |
    | One-off mistake (situational cause, unlikely to recur) | note only | No persistent action needed |
 
    **Distinguishing "New pattern" vs "One-off mistake":**
@@ -305,17 +305,29 @@ For each approved action:
    - Present the draft to user for review BEFORE any edit
    - Apply only with explicit approval ("yes, add this rule")
 
-4. **Upstream feedback** → Create a labeled issue in `devseunggwan/praxis` for tool-level improvement:
+4. **Upstream feedback** → Resolve the tool's **backing repo first** (do NOT hardcode any specific repo), then create a labeled issue there. Hardcoding misroutes plugin defects, custom MCP defects, dotfiles defects across user environments.
+
+   **Backing repo resolution (MUST do BEFORE issue creation):**
+
+   | Tool name / layer pattern | Backing repo resolution |
+   |---|---|
+   | `mcp__<plugin>__*` from a Claude Code plugin | Read `repository` field from that plugin's `.claude-plugin/plugin.json` (or equivalent manifest) |
+   | `mcp__<service>-*` from a custom/team MCP server | The MCP server's source repo — `git remote -v` of the server's directory, or read its package manifest |
+   | Skill within the praxis distribution itself | The praxis source repo this skill was installed from — read `repository` field in praxis's own plugin manifest |
+   | Hook in `~/.claude/hooks/` or a globally symlinked CLAUDE.md/AGENTS.md | The user's dotfiles backing repo — resolve via `ls -la` symlink chain, then `git remote -v` of the target dir |
+   | CLI tool (e.g., `gh`, `kubectl`) | The CLI's open-source upstream if accessible; otherwise `note only` |
+   | Builtin tool (Read/Edit/Bash/Grep) | Typically not actionable — `note only` |
+   | Other / ambiguous | Ask the user; do NOT fall back to a hardcoded repo |
+
+   If the active project's CLAUDE.md provides a feature-to-repo mapping, consult it before deciding a repo.
+
+   **Then create the issue (using the resolved backing repo):**
    - Title: `{type}({tool_layer}): {friction description}` (Conventional Commits format)
-   - Label: map tool layer to label:
-     - `mcp` → `tool-friction:mcp`
-     - `cli` → `tool-friction:cli`
-     - `builtin` → `tool-friction:builtin`
-     - `skill` → `tool-friction:skill`
+   - Label: `tool-friction:{layer}` is praxis's own convention. Apply it ONLY when the resolved backing repo is the praxis distribution itself. For any other backing repo, use that repo's existing label conventions (e.g., `bug`, `enhancement`); do NOT auto-create praxis-style labels in unrelated repos.
+   - If `tool-friction:*` is needed and missing in the praxis repo: `gh label create "tool-friction:{layer}" --repo <resolved-praxis-repo>`
    - Body: include evidence, expected behavior, proposed fix direction from step 4b finding
-   - Command: `gh issue create --repo devseunggwan/praxis --title "$TITLE" --label "$LABEL" --body "$BODY"`
-   - If required labels don't exist yet: create them first with `gh label create "tool-friction:{layer}" --repo devseunggwan/praxis`
-   - **Verification (mandatory):** issue URL is returned and `gh issue view {url}` succeeds
+   - Command: `gh issue create --repo <resolved_backing_repo> --title "$TITLE" --label "$LABEL" --body "$BODY"` — substitute the resolved repo, never hardcode
+   - **Verification (mandatory):** issue URL is returned, `gh issue view {url}` succeeds, AND the URL's repo matches the resolved backing repo (catches misrouting)
 
 5. **Skill idea note** → Write to `{current_project}/.omc/plans/retrospect-skill-idea-{slug}.md`
    - `{current_project}` = `$CLAUDE_PROJECT_DIR` or `git rev-parse --show-toplevel`
@@ -367,7 +379,7 @@ Session learnings captured. Next session will benefit from these improvements.
 | "The session was mostly fine, nothing to retrospect" | Even 1 friction event is worth 2 minutes to capture. |
 | "I'll do this later" | Later never comes. Do it at session end while context is fresh. |
 | "This is a tool issue, not a Claude issue" | Tool + Claude interaction is within scope. Both can be improved. |
-| "Tool issue라서 이번 retrospect scope 밖이다" | Scope 안이다. Step 4b에서 분석하고 `upstream feedback`으로 `devseunggwan/praxis`에 이슈 + `tool-friction:{layer}` 라벨까지 남겨야 한다. |
+| "Tool issue라서 이번 retrospect scope 밖이다" | Scope 안이다. Step 4b에서 분석하고 `upstream feedback`으로 도구의 backing repo (Stage 4 Action 4 의 routing 표 참고)에 이슈를 남겨야 한다. |
 | "도구 결함이지 내 행동 문제가 아니다" | 둘 다일 수 있다. Step 4 (행동 교정)와 step 4b (도구 개선)에 각각 기록하라. 하나만 선택하지 마라. |
 
 ## Red Flags — STOP
@@ -414,7 +426,7 @@ If you catch yourself:
 | Stage 4 (execute) | MEMORY.md write fails | Report the path error; never silently drop the feedback |
 | Stage 4 (execute) | GitHub issue creation fails | Fall back to saving a note in `.omc/plans/` for later manual creation |
 | Stage 4 (execute) | Upstream feedback issue creation fails | Fall back to saving a note in `.omc/plans/tool-friction-{slug}.md` with intended `tool-friction:{layer}` label and issue draft |
-| Stage 4 (execute) | `tool-friction:*` label doesn't exist | Auto-create with `gh label create "tool-friction:{layer}" --repo devseunggwan/praxis` and retry |
+| Stage 4 (execute) | `tool-friction:*` label doesn't exist (and the resolved backing repo is the praxis distribution) | Auto-create with `gh label create "tool-friction:{layer}" --repo <resolved-praxis-repo>` and retry |
 
 ## Integration
 
