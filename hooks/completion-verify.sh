@@ -2,7 +2,7 @@
 # Stop hook: block assistant completion claims without same-turn verification evidence.
 # Contract: reads JSON from stdin, emits {"decision":"block"} or exit 0 pass.
 #
-# Strict same-turn enforcement (issue #138):
+# Strict same-turn enforcement (issue #138, PR #144):
 #   When CLAIM_PATTERNS matches in the last 10 lines of the last assistant message,
 #   pass only if ALL of these hold within the current turn (since the last real user input):
 #     L1. A Bash tool_use exists.
@@ -27,7 +27,7 @@ EVIDENCE_PATTERNS='(tests? passed|\bPASS\b|exit code 0|\b[1-9][0-9]* tests? (ran
 # Single jq pass: extract last assistant text + Bash tool_result texts in current turn.
 # Current turn boundary = events after the last real user input (string content, or
 # array containing any non-tool_result block). Tool-result-only user messages are
-# tool replies and do not reset the turn.
+# tool replies and do not reset the turn. [PR #144]
 TURN_JSON=$(tail -n 400 "$TRANSCRIPT_PATH" | jq -sc '
   ([
     to_entries[]
