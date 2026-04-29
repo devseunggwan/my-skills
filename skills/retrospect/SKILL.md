@@ -118,13 +118,13 @@ You MUST complete each stage before proceeding to the next.
 
    | Layer | Examples | Friction signals |
    |-------|----------|-----------------|
-   | `mcp` | laplace-airflow, laplace-trino, signoz, slack MCP | Slow response, missing field, schema mismatch, timeout |
-   | `cli` | gh, kubectl, hubctl, omc, codex, gemini | Missing flag/option, undocumented behavior, workaround needed |
+   | `mcp` | any custom or third-party MCP server (data warehouse, observability, chat, infra, etc.) | Slow response, missing field, schema mismatch, timeout |
+   | `cli` | `gh`, `kubectl`, `git`, plus project-specific CLIs | Missing flag/option, undocumented behavior, workaround needed |
    | `builtin` | Read/Edit/Bash/Grep/Glob, Agent, hooks | Environmental constraint, permission issue, output truncation |
-   | `skill` | OMC/laplace-dev-hub/praxis skills, subagents | Stage boundary unclear, trigger mismatch, prompt defect, wrong routing |
+   | `skill` | praxis / OMC / project-specific skills and subagents | Stage boundary unclear, trigger mismatch, prompt defect, wrong routing |
 
    **For each tool friction event, record:**
-   - `tool_name`: specific tool (e.g., "gh CLI", "laplace-airflow MCP", "turbo-setup skill")
+   - `tool_name`: specific tool (e.g., "gh CLI", "<plugin-name> MCP", "<skill-name> skill")
    - `layer`: mcp / cli / builtin / skill
    - `friction_type`: missing feature, design defect, documentation gap, performance issue, integration mismatch
    - `evidence`: the specific moment (quote or paraphrase)
@@ -379,7 +379,7 @@ Session learnings captured. Next session will benefit from these improvements.
 | "The session was mostly fine, nothing to retrospect" | Even 1 friction event is worth 2 minutes to capture. |
 | "I'll do this later" | Later never comes. Do it at session end while context is fresh. |
 | "This is a tool issue, not a Claude issue" | Tool + Claude interaction is within scope. Both can be improved. |
-| "Tool issue라서 이번 retrospect scope 밖이다" | Scope 안이다. Step 4b에서 분석하고 `upstream feedback`으로 `devseunggwan/praxis`에 이슈 + `tool-friction:{layer}` 라벨까지 남겨야 한다. |
+| "Tool issue라서 이번 retrospect scope 밖이다" | Scope 안이다. Step 4b에서 분석하고 `upstream feedback`으로 도구의 backing repo (Stage 4 Action 4 의 routing 표 참고)에 이슈를 남겨야 한다. |
 | "도구 결함이지 내 행동 문제가 아니다" | 둘 다일 수 있다. Step 4 (행동 교정)와 step 4b (도구 개선)에 각각 기록하라. 하나만 선택하지 마라. |
 
 ## Red Flags — STOP
@@ -426,7 +426,7 @@ If you catch yourself:
 | Stage 4 (execute) | MEMORY.md write fails | Report the path error; never silently drop the feedback |
 | Stage 4 (execute) | GitHub issue creation fails | Fall back to saving a note in `.omc/plans/` for later manual creation |
 | Stage 4 (execute) | Upstream feedback issue creation fails | Fall back to saving a note in `.omc/plans/tool-friction-{slug}.md` with intended `tool-friction:{layer}` label and issue draft |
-| Stage 4 (execute) | `tool-friction:*` label doesn't exist | Auto-create with `gh label create "tool-friction:{layer}" --repo devseunggwan/praxis` and retry |
+| Stage 4 (execute) | `tool-friction:*` label doesn't exist (and the resolved backing repo is the praxis distribution) | Auto-create with `gh label create "tool-friction:{layer}" --repo <resolved-praxis-repo>` and retry |
 
 ## Integration
 
