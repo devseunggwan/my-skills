@@ -178,7 +178,7 @@ You MUST complete each stage before proceeding to the next.
    | Repeat (3x+) | hook or skill | Multiple memory entries = enforcement gap |
    | Missing rule (new) | CLAUDE.md draft | No rule exists for this pattern |
    | Missing rule + Repeat | CLAUDE.md draft + GitHub issue | Missing rule caused repeat — add rule + compliance issue |
-   | Tool friction (step 4b finding) | upstream feedback | Tool improvement needed — praxis repo issue with `tool-friction:{layer}` label |
+   | Tool friction (step 4b finding) | upstream feedback | Tool improvement needed — issue in the tool's **backing repo** (resolve via Stage 4 Action 4 routing table; not always praxis) |
    | One-off mistake (situational cause, unlikely to recur) | note only | No persistent action needed |
 
    **Distinguishing "New pattern" vs "One-off mistake":**
@@ -305,17 +305,30 @@ For each approved action:
    - Present the draft to user for review BEFORE any edit
    - Apply only with explicit approval ("yes, add this rule")
 
-4. **Upstream feedback** → Create a labeled issue in `devseunggwan/praxis` for tool-level improvement:
+4. **Upstream feedback** → Resolve the tool's **backing repo first**, then create a labeled issue there. Never hardcode `devseunggwan/praxis` for all tool friction — that misroutes company MCP defects, CLI defects, etc.
+
+   **Backing repo resolution (MUST do BEFORE issue creation):**
+
+   | Tool name / layer | Backing repo |
+   |---|---|
+   | `mcp__praxis*` or skill in praxis itself | `devseunggwan/praxis` |
+   | `mcp__plugin_oh-my-claudecode_*` or OMC skill | OMC source repo (e.g., `Yeachan-Heo/oh-my-claudecode`) |
+   | `mcp__<service>-*` (company MCP — e.g., `laplace-airflow`, `laplace-k8s`, `laplace-trino`) | company MCP host repo (e.g., `laplacetec/laplace-data-platform-mcp`) |
+   | Hook in user dotfiles (`.claude/hooks/*`) or global CLAUDE.md | the dotfiles backing repo (verify via `ls -la` symlink — e.g., `devseunggwan/ai-dotfiles`) |
+   | CLI tool (`gh`, `kubectl`, etc.) | typically outside user control — fall back to `note only` or local workaround |
+   | Builtin tool (Read/Edit/Bash/Grep) | typically not actionable — `note only` |
+   | Other / ambiguous | ask the user; default to `devseunggwan/praxis` ONLY when nothing else fits |
+
+   For company repos, also check the `feature-repo mapping` in the project CLAUDE.md (if present) before assuming a repo.
+
+   **Then create the issue (using the resolved backing repo):**
    - Title: `{type}({tool_layer}): {friction description}` (Conventional Commits format)
-   - Label: map tool layer to label:
-     - `mcp` → `tool-friction:mcp`
-     - `cli` → `tool-friction:cli`
-     - `builtin` → `tool-friction:builtin`
-     - `skill` → `tool-friction:skill`
+   - Label: `tool-friction:*` labels are praxis-specific. Apply rules per backing repo:
+     - praxis → `tool-friction:{layer}` (`tool-friction:mcp` / `:cli` / `:builtin` / `:skill`); auto-create with `gh label create "tool-friction:{layer}" --repo devseunggwan/praxis` if missing
+     - non-praxis (company / OMC / dotfiles) → use that repo's existing labels (e.g., `bug`, `enhancement`); do NOT auto-create the praxis-style label there
    - Body: include evidence, expected behavior, proposed fix direction from step 4b finding
-   - Command: `gh issue create --repo devseunggwan/praxis --title "$TITLE" --label "$LABEL" --body "$BODY"`
-   - If required labels don't exist yet: create them first with `gh label create "tool-friction:{layer}" --repo devseunggwan/praxis`
-   - **Verification (mandatory):** issue URL is returned and `gh issue view {url}` succeeds
+   - Command: `gh issue create --repo {resolved_backing_repo} --title "$TITLE" --label "$LABEL" --body "$BODY"` — substitute the resolved repo, never hardcode
+   - **Verification (mandatory):** issue URL is returned, `gh issue view {url}` succeeds, AND the URL's repo matches the resolved backing repo (catches misrouting)
 
 5. **Skill idea note** → Write to `{current_project}/.omc/plans/retrospect-skill-idea-{slug}.md`
    - `{current_project}` = `$CLAUDE_PROJECT_DIR` or `git rev-parse --show-toplevel`
