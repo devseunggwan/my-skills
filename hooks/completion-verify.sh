@@ -7,8 +7,10 @@
 #   pass only if ALL of these hold within the current turn (since the last real user input):
 #     L1. A Bash tool_use exists.
 #     L3. Its tool_result.content matches EVIDENCE_PATTERNS.
-#     L2. At least one substantive line (≥20 chars trimmed) of that tool_result
-#         is paste'd into the assistant message text (substring match).
+#     L2. At least one EVIDENCE_PATTERNS-matching span from that tool_result
+#         is paste'd as a substring of the assistant message text — i.e. the
+#         specific "12 passed" / "tests passed" / "lint clean" / "✅" / etc.
+#         token that triggered L3 must appear verbatim in the message.
 #   Otherwise, block with a {decision: block, reason: ...} JSON payload.
 
 command -v jq >/dev/null 2>&1 || exit 0
@@ -22,7 +24,7 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 [ ! -f "$TRANSCRIPT_PATH" ] && exit 0
 
 CLAIM_PATTERNS='(모두 완료(했)?|완료했습니다[.!。?…]?\s*$|작업 완료[.!。?…]?\s*$|완료[.!。?…]?\s*$|\bdone\b[.!?]?\s*$|\bfinished\b[.!?]?\s*$|cleanup (is |was )?finished|implementation complete|all done)'
-EVIDENCE_PATTERNS='(tests? passed|\bPASS\b|exit code 0|\b[1-9][0-9]* tests? (ran|passed)|0 errors|build successful|lint clean|성공적으로|테스트.*통과|✅)'
+EVIDENCE_PATTERNS='(tests? passed|\bPASS\b|exit code 0|\b[1-9][0-9]* tests? (ran|passed)|\b[1-9][0-9]* passed\b|0 errors|build successful|lint clean|성공적으로|테스트.*통과|✅)'
 
 # Single jq pass: extract last assistant text + Bash tool_result texts in current turn.
 # Current turn boundary = events after the last real user input (string content, or
@@ -91,18 +93,22 @@ if [ -z "$BASH_OUTPUTS" ]; then
 elif ! printf '%s' "$BASH_OUTPUTS" | grep -qE "$EVIDENCE_PATTERNS"; then
   block_reason="Bash output present but lacks a verification signal (e.g., 'tests passed', 'exit code 0', 'lint clean'). Re-run an actual verify command."
 else
+  # Paste check: each EVIDENCE_PATTERNS-matching span in tool_result must
+  # appear verbatim in the assistant message. Span-based (not line-based)
+  # so decorated output like '======== 12 passed in 0.85s ========' counts
+  # when the assistant cites '12 passed in 0.85s'.
   paste_detected=false
-  while IFS= read -r line; do
-    trimmed=$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
-    [ ${#trimmed} -lt 20 ] && continue
-    if printf '%s' "$LAST_TEXT" | grep -qF -e "$trimmed"; then
+  evidence_spans=$(printf '%s' "$BASH_OUTPUTS" | grep -oE "$EVIDENCE_PATTERNS")
+  while IFS= read -r span; do
+    [ -z "$span" ] && continue
+    if printf '%s' "$LAST_TEXT" | grep -qF -e "$span"; then
       paste_detected=true
       break
     fi
-  done <<< "$BASH_OUTPUTS"
+  done <<< "$evidence_spans"
 
   if [ "$paste_detected" = "false" ]; then
-    block_reason="Bash output has a verification signal but its content was not quoted in your message. Paste at least one full line (≥20 chars) of the verify output into your reply."
+    block_reason="Bash output has a verification signal but the evidence span (e.g. 'X passed', 'lint clean', '✅') was not quoted in your message. Paste the verify token verbatim into your reply."
   fi
 fi
 

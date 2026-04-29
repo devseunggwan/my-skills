@@ -188,6 +188,17 @@ $ASST6A
 $READ_RESULT
 $ASST6B"
 
+# AC7b — realistic pytest output ("12 passed in 0.85s", no "tests" word) → pass
+USER7B=$(mk_user_text "run pytest")
+BASH7B=$(mk_bash_use "pyt1" "pytest -q")
+ASST7B_A=$(mk_assistant "running pytest..." "[$BASH7B]")
+RESULT7B=$(mk_tool_result "pyt1" "============= 12 passed in 0.85s =============")
+ASST7B_B=$(mk_assistant "Pytest result: 12 passed in 0.85s. All done.")
+run_case "AC7b realistic pytest output" pass "$USER7B
+$ASST7B_A
+$RESULT7B
+$ASST7B_B"
+
 # AC7 — claim followed by Korean evidence (e.g. 테스트 통과) + paste → pass --
 USER7=$(mk_user_text "pytest 돌려봐")
 BASH7=$(mk_bash_use "kor1" "pytest")

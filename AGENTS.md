@@ -365,13 +365,15 @@ The turn passes only if **all** of the following hold:
 | Gate | Condition |
 |------|-----------|
 | L1 | A `Bash` tool_use occurred in this turn |
-| L3 | Its `tool_result.content` matches `EVIDENCE_PATTERNS` (`tests passed`, `\bPASS\b`, `exit code 0`, `lint clean`, `테스트.*통과`, `✅`, etc.) |
-| L2 | At least one trimmed line ≥20 chars from that `tool_result` is paste'd as a substring of the assistant message text |
+| L3 | Its `tool_result.content` matches `EVIDENCE_PATTERNS` (`X passed`, `tests passed`, `\bPASS\b`, `exit code 0`, `lint clean`, `테스트.*통과`, `✅`, etc.) |
+| L2 | At least one `EVIDENCE_PATTERNS`-matching span from that `tool_result` is paste'd verbatim in the assistant message text — e.g. `12 passed`, `tests passed`, `lint clean`, `✅` |
 
 A claim with no Bash, with Bash but no evidence signal, or with evidence but
-no quoted line, all block. Tool results from non-Bash tools (e.g. `Read`,
-`Write`) do **not** count as evidence — only an actually executed Bash
-command qualifies.
+the verify token not quoted, all block. Tool results from non-Bash tools
+(e.g. `Read`, `Write`) do **not** count as evidence — only an actually
+executed Bash command qualifies. Span-based paste detection is decoration-
+agnostic — pytest's `============= 12 passed in 0.85s =============` border
+output passes when the assistant cites `12 passed in 0.85s`.
 
 ### Response
 
@@ -413,11 +415,11 @@ same pattern the marker would re-enable.
 
 ### Tests
 
-`tests/test_completion_verify.sh` covers 11 cases: 7 acceptance scenarios
+`tests/test_completion_verify.sh` covers 12 cases: 8 acceptance scenarios
 (same-turn pass, no-Bash claim, no-evidence claim, no-paste claim,
-mid-message claim ignored, non-Bash tool ignored, Korean evidence) and 4
-fail-safes (`stop_hook_active`, missing transcript, empty file, malformed
-JSONL). Run before editing the hook:
+mid-message claim ignored, non-Bash tool ignored, realistic pytest
+output, Korean evidence) and 4 fail-safes (`stop_hook_active`, missing
+transcript, empty file, malformed JSONL). Run before editing the hook:
 
 ```bash
 ./tests/test_completion_verify.sh
