@@ -192,6 +192,45 @@ You MUST complete each stage before proceeding to the next.
 
 ### Stage 3: Report + Approval
 
+**Output Schema Contract** (normative — Stop hook `retrospect-mix-check.sh` parses this):
+
+Stage 3 output MUST emit, in this order:
+
+1. **Header**: a line matching `^## Retrospect Report` (em-dash or hyphen tail accepted: `## Retrospect Report — {date}` or `## Retrospect Report - {date}`).
+2. **Distribution card** between HTML comment fences. Action keys are canonical snake_case enum; verdict values are `PASS` / `FAIL` / `NA`:
+
+   ```markdown
+   <!-- AUTHORITATIVE_SCHEMA — Stop hook depends on this. Co-update hooks/retrospect-mix-check.sh + tests/test_retrospect_mix_check.sh + tests/fixtures/retrospect-synth-*.expected.json on any change to this fence or the action key set. -->
+   <!-- retrospect:distribution begin -->
+   - memory: 1
+   - issue: 0
+   - claude_md_draft: 0
+   - skill_idea: 0
+   - hook_code: 0
+   - upstream_feedback: 0
+   - gate_1_verdict: PASS
+   - gate_2_verdict: PASS
+   <!-- retrospect:distribution end -->
+   ```
+
+3. **Unified findings table** with literal column headers (no abbreviation, no reordering):
+
+   ```
+   | # | Category | Tool Layer | Pattern | Root Cause | Rule / Gap | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
+   ```
+
+   Column semantics:
+   - `Category`: comma-separated subset of `behavioral`, `tool`, `workflow`, `spec-gap` (≥1, see Stage 2 pre-scan categorization)
+   - `Tool Layer`: one of `mcp`, `cli`, `builtin`, `skill`, or `—` (mandatory non-`—` when `tool` ∈ Category, optional `skill` for `workflow` / `spec-gap`, `—` for `behavioral`)
+   - `Proposed Actions (1~2)`: comma-separated subset of `memory`, `issue`, `claude_md_draft`, `skill_idea`, `hook_code`, `upstream_feedback`
+   - `Rationale`: free-form one-line for compound or non-memory rows; for **memory-only** rows (single `memory`, not compound), the cell MUST contain exactly 5 lines matching `^not (issue|claude_md_draft|skill_idea|hook_code|upstream_feedback): .+$`, one line per non-memory action type. Generic single-sentence rationales are NOT acceptable for memory-only findings.
+
+The Stop hook parses the distribution-card fence (deterministic) and the table (anchored on these literal column headers). Drift in this contract requires synchronized edits to `hooks/retrospect-mix-check.sh`, `tests/test_retrospect_mix_check.sh`, and `tests/fixtures/retrospect-synth-*.expected.json`.
+
+**Spec AC-A3 deviation note** — earlier draft asked for "memory-only justification 한 줄" inside the distribution card. v2 relocates that justification into the unified-table `Rationale` column as the structured 5-line `not <action>: <reason>` block: strictly more informative than a single line, single source of truth, eliminates card↔table inconsistency risk.
+
+---
+
 **Present findings in a structured table with escalation context:**
 
 ```
