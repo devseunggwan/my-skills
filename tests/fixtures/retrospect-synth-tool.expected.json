@@ -1,0 +1,9 @@
+{
+  "expected_decision": "pass",
+  "must_contain": [
+    "upstream_feedback"
+  ],
+  "must_not_contain": [
+    "decision\": \"block\""
+  ]
+}
