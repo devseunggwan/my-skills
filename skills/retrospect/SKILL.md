@@ -231,27 +231,33 @@ The Stop hook parses the distribution-card fence (deterministic) and the table (
 
 ---
 
-**Present findings in a structured table with escalation context:**
+**Present findings as a single unified table per the Output Schema Contract above:**
 
 ```
 ## Retrospect Report — {session_date}
 
-| # | Pattern | Root Cause | Rule | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
-|---|---------|------------|------|---------|------------------------|-----------|----------|
-| 1 | {pattern} | {root_cause} | {rule_ref} | {Yes(Nx)/No} | {action1} [+ {action2}] | {why_composite_or_single} | HIGH/MED/LOW |
+<!-- retrospect:distribution begin -->
+- memory: {n}
+- issue: {n}
+- claude_md_draft: {n}
+- skill_idea: {n}
+- hook_code: {n}
+- upstream_feedback: {n}
+- gate_1_verdict: {PASS|FAIL|NA}
+- gate_2_verdict: {PASS|FAIL|NA}
+<!-- retrospect:distribution end -->
+
+| # | Category | Tool Layer | Pattern | Root Cause | Rule / Gap | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
+|---|----------|------------|---------|------------|------------|---------|------------------------|-----------|----------|
+| 1 | {behavioral|tool|workflow|spec-gap, ...} | {mcp|cli|builtin|skill|—} | {pattern} | {root_cause} | {rule_ref or "gap"} | {Yes(Nx)/No} | {action1[, action2]} | {rationale: 5 `not <action>:` lines for memory-only, or one-line for compound/non-memory} | HIGH/MED/LOW |
 ...
 
-No patterns found: "This session followed all CLAUDE.md rules. ✅"
-
-### Tool/Feature Findings (from step 4b)
-
-| # | Affected Tool | Tool Layer | Friction Type | Evidence | Proposed Upstream Action | Priority |
-|---|---------------|------------|---------------|----------|--------------------------|----------|
-| T1 | {tool_name} | {mcp/cli/builtin/skill} | {friction_type} | {evidence} | {upstream feedback / note only} | HIGH/MED/LOW |
-...
-
-No tool friction found: "No tool/feature friction detected. ✅"
+No patterns found: emit the distribution card with all counts = 0 and verdicts = NA, plus literal "This session followed all CLAUDE.md rules. ✅"
 ```
+
+The unified table folds the previous dual-table layout (Pattern + Tool/Feature Findings) into one. Tool-layer information that previously lived in a separate "Tool/Feature Findings" table is now carried in the `Tool Layer` column of every row tagged with `tool` in `Category`. Reviewers see all findings in priority order without cross-referencing two tables.
+
+**Sorting**: rows SHOULD be sorted by `Priority` (HIGH → MED → LOW). Within the same priority, prefer non-memory `Proposed Actions` first so escalations surface above behavioral memos.
 
 **Action type baseline comes from Stage 2 escalation ladder**, but Stage 3 MUST explicitly evaluate all six action types per finding and select 1–2 composite actions.
 
