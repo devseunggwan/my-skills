@@ -457,6 +457,121 @@ EOF
 run_case "T21_block_interaction_with_completion_verify" "block" \
   "$(mk_assistant "$T21_TEXT")"
 
+# Code-review hardening cases (HIGH/MEDIUM bypasses) ------------------------
+
+# T22: block — escaped pipe in cell content. Without sentinel substitution,
+# 'a\|b\|c' inside Pattern shifts cell indices and Gate-1 misses tool+memory.
+T22_CARD=$(cat <<EOF
+- memory: 1
+- issue: 0
+- claude_md_draft: 0
+- skill_idea: 0
+- hook_code: 0
+- upstream_feedback: 0
+- gate_1_verdict: FAIL
+- gate_2_verdict: PASS
+EOF
+)
+T22_ROW="| 1 | tool | cli | a\\|b\\|c | y | gap | No | memory | ${RATIONALE_5LINE} | HIGH |"
+run_case "T22_block_escaped_pipe_in_cell" "block" \
+  "$(mk_assistant "$(mk_retrospect_stage3 "$T22_CARD" "$T22_ROW")")"
+
+# T23: block — short row (9 cells, missing Priority). Fail-closed.
+T23_CARD=$(cat <<EOF
+- memory: 1
+- issue: 0
+- claude_md_draft: 0
+- skill_idea: 0
+- hook_code: 0
+- upstream_feedback: 0
+- gate_1_verdict: PASS
+- gate_2_verdict: PASS
+EOF
+)
+T23_ROW="| 1 | tool | cli | x | y | gap | No | memory | ${RATIONALE_5LINE} |"
+run_case "T23_block_short_row_schema_violation" "block" \
+  "$(mk_assistant "$(mk_retrospect_stage3 "$T23_CARD" "$T23_ROW")")"
+
+# T24: block — degenerate compound 'memory, memory' on tool-categorized row.
+# Should be treated as memory-only after dedupe → Gate-1 fires.
+T24_CARD=$(cat <<EOF
+- memory: 1
+- issue: 0
+- claude_md_draft: 0
+- skill_idea: 0
+- hook_code: 0
+- upstream_feedback: 0
+- gate_1_verdict: FAIL
+- gate_2_verdict: PASS
+EOF
+)
+T24_ROW="| 1 | tool | cli | x | y | gap | No | memory, memory | ${RATIONALE_5LINE} | HIGH |"
+run_case "T24_block_degenerate_memory_compound" "block" \
+  "$(mk_assistant "$(mk_retrospect_stage3 "$T24_CARD" "$T24_ROW")")"
+
+# T25: block — dual distribution card in same Stage 3 block. Earlier card
+# claims PASS, later card has FAIL. Hook must read the LAST occurrence.
+T25_TEXT=$(cat <<EOF
+## Retrospect Report — 2026-04-30
+
+<!-- retrospect:distribution begin -->
+- memory: 1
+- issue: 0
+- claude_md_draft: 0
+- skill_idea: 0
+- hook_code: 0
+- upstream_feedback: 0
+- gate_1_verdict: PASS
+- gate_2_verdict: PASS
+<!-- retrospect:distribution end -->
+
+(stale draft above; corrected below)
+
+<!-- retrospect:distribution begin -->
+- memory: 1
+- issue: 0
+- claude_md_draft: 0
+- skill_idea: 0
+- hook_code: 0
+- upstream_feedback: 0
+- gate_1_verdict: FAIL
+- gate_2_verdict: PASS
+<!-- retrospect:distribution end -->
+
+| # | Category | Tool Layer | Pattern | Root Cause | Rule / Gap | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
+|---|----------|------------|---------|------------|------------|---------|------------------------|-----------|----------|
+| 1 | tool | cli | x | y | gap | No | memory | ${RATIONALE_5LINE} | HIGH |
+EOF
+)
+run_case "T25_block_dual_card_last_wins" "block" \
+  "$(mk_assistant "$T25_TEXT")"
+
+# T26: pass — retrospect-shaped output inside a fenced code block (example
+# in documentation). Hook MUST strip fences before identifier check, else it
+# would block legitimate doc-authoring sessions.
+T26_TEXT=$(cat <<'TXTEOF'
+Here is what a retrospect output looks like (example only, inside fenced code):
+
+```markdown
+## Retrospect Report — 2026-04-30
+
+<!-- retrospect:distribution begin -->
+- memory: 1
+- gate_1_verdict: FAIL
+- gate_2_verdict: FAIL
+<!-- retrospect:distribution end -->
+
+| # | Category | Tool Layer | Pattern | Root Cause | Rule / Gap | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
+|---|----------|------------|---------|------------|------------|---------|------------------------|-----------|----------|
+| 1 | tool | cli | x | y | gap | No | memory | empty | HIGH |
+```
+
+End of example.
+TXTEOF
+)
+run_case "T26_pass_retrospect_inside_fenced_code" "pass" \
+  "$(mk_assistant "$T26_TEXT")"
+
 # Synthetic regression fixtures (AC-R1~R4) ----------------------------------
 # Each fixture pairs a .jsonl transcript with a .expected.json sidecar:
 #   {expected_decision: "pass"|"block", must_contain: [...], must_not_contain: [...]}

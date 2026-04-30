@@ -42,6 +42,16 @@ LAST_TEXT=$(tail -n 400 "$TRANSCRIPT_PATH" | jq -rs '
 
 [ -z "$LAST_TEXT" ] && exit 0
 
+# Strip fenced code blocks (```...```) from LAST_TEXT before identifier checks
+# so that documentation/example output quoted inside fences does NOT trip the
+# hook. This addresses the meta-hazard where Claude pastes a retrospect example
+# while authoring SKILL.md or this very review.
+LAST_TEXT=$(printf '%s\n' "$LAST_TEXT" | awk '
+  BEGIN { in_fence = 0 }
+  /^[[:space:]]*```/ { in_fence = !in_fence; next }
+  !in_fence { print }
+')
+
 # Identifier check 1: line-anchored '## Retrospect Report' header.
 if ! printf '%s\n' "$LAST_TEXT" | grep -qE '^## Retrospect Report'; then
   exit 0
@@ -84,8 +94,10 @@ DIST_CARD=$(printf '%s\n' "$MOST_RECENT_BLOCK" | awk '
 
 # Extract gate verdicts from the card. Default to "MISSING" so a missing key
 # trips the violation check below.
-GATE_1=$(printf '%s\n' "$DIST_CARD" | awk -F': *' '/^- gate_1_verdict:/ {print $2; exit}')
-GATE_2=$(printf '%s\n' "$DIST_CARD" | awk -F': *' '/^- gate_2_verdict:/ {print $2; exit}')
+# LAST occurrence wins (handles dual-card-in-block case where a stale earlier
+# PASS would otherwise shadow a corrected FAIL).
+GATE_1=$(printf '%s\n' "$DIST_CARD" | awk -F': *' '/^- gate_1_verdict:/ {v=$2} END{print v}')
+GATE_2=$(printf '%s\n' "$DIST_CARD" | awk -F': *' '/^- gate_2_verdict:/ {v=$2} END{print v}')
 [ -z "$GATE_1" ] && GATE_1="MISSING"
 [ -z "$GATE_2" ] && GATE_2="MISSING"
 
@@ -106,7 +118,9 @@ TABLE_LINES=$(printf '%s\n' "$MOST_RECENT_BLOCK" | awk '
 # Walk data rows (skip header + separator).
 declare -a GATE1_VIOLATIONS=()
 declare -a GATE2_VIOLATIONS=()
+declare -a SHORT_ROW_VIOLATIONS=()
 ROW_INDEX=0
+PIPE_SENTINEL=$'\x01PIPE\x01'
 
 while IFS= read -r row; do
   [ -z "$row" ] && continue
@@ -114,18 +128,45 @@ while IFS= read -r row; do
   # Skip header (row 1) and separator (row 2: starts with '|---').
   if [ "$ROW_INDEX" -le 2 ]; then continue; fi
 
+  # Protect markdown-escaped pipes (`\|`) from the IFS='|' split.
+  # Substitute '\|' with a sentinel before splitting; restore inside cells.
+  protected=$(printf '%s' "$row" | sed "s/\\\\|/${PIPE_SENTINEL}/g")
+
   # Split row by '|' into cells (trim leading/trailing pipes + whitespace).
-  trimmed="${row#\|}"; trimmed="${trimmed%\|}"
+  trimmed="${protected#\|}"; trimmed="${trimmed%\|}"
   IFS='|' read -ra cells <<< "$trimmed"
   # cells indices (0-based): 0=#, 1=Category, 2=Tool Layer, 3=Pattern,
   # 4=Root Cause, 5=Rule/Gap, 6=Repeat?, 7=Proposed Actions, 8=Rationale,
   # 9=Priority
 
-  [ "${#cells[@]}" -lt 10 ] && continue
+  # Fail closed on short rows (schema violation — block, do not silently skip).
+  if [ "${#cells[@]}" -lt 10 ]; then
+    finding_num_short=$(echo "${cells[0]:-?}" | xargs)
+    SHORT_ROW_VIOLATIONS+=("finding #${finding_num_short}: row has ${#cells[@]} cells, expected 10 — table schema violation")
+    continue
+  fi
   finding_num=$(echo "${cells[0]}" | xargs)
   category=$(echo "${cells[1]}" | xargs)
-  actions=$(echo "${cells[7]}" | xargs)
-  rationale=$(echo "${cells[8]}")
+  actions_raw=$(echo "${cells[7]}" | xargs)
+  rationale=$(echo "${cells[8]}" | sed "s/${PIPE_SENTINEL}/|/g")
+
+  # Tokenize Proposed Actions and dedupe (handles degenerate compounds like
+  # 'memory, memory' — these are semantically memory-only).
+  # Bash 3.2 compatible: string-based seen tracker (no associative arrays).
+  IFS=',' read -ra action_tokens <<< "$actions_raw"
+  unique_actions=()
+  seen_str=" "
+  for tok in "${action_tokens[@]}"; do
+    t=$(echo "$tok" | xargs)
+    [ -z "$t" ] && continue
+    case "$seen_str" in
+      *" $t "*) ;;
+      *)
+        seen_str="$seen_str$t "
+        unique_actions+=("$t")
+        ;;
+    esac
+  done
 
   # Gate-1: tool/workflow/spec-gap labeled finding with action == 'memory' only.
   cat_has_nonbehavioral=false
@@ -138,7 +179,7 @@ while IFS= read -r row; do
   esac
 
   is_memory_only=false
-  if [ "$actions" = "memory" ]; then
+  if [ "${#unique_actions[@]}" -eq 1 ] && [ "${unique_actions[0]}" = "memory" ]; then
     is_memory_only=true
   fi
 
@@ -186,6 +227,12 @@ if [ "${#GATE2_VIOLATIONS[@]}" -gt 0 ]; then
   should_block=true
   for v in "${GATE2_VIOLATIONS[@]}"; do
     reason_parts+=("Gate-2: $v")
+  done
+fi
+if [ "${#SHORT_ROW_VIOLATIONS[@]}" -gt 0 ]; then
+  should_block=true
+  for v in "${SHORT_ROW_VIOLATIONS[@]}"; do
+    reason_parts+=("Schema: $v")
   done
 fi
 

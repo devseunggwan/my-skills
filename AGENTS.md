@@ -528,7 +528,7 @@ git -C ~/.claude/plugins/.../praxis apply --reverse <patch>
 
 ### Tests
 
-`tests/test_retrospect_mix_check.sh` covers 21 cases plus 4 synthetic
+`tests/test_retrospect_mix_check.sh` covers 26 cases plus 4 synthetic
 regression fixtures (AC-R1~R4):
 
 - 4 pass scenarios (behavior-only with rationale, escalated tool, escalated
@@ -540,6 +540,9 @@ regression fixtures (AC-R1~R4):
   `jq`)
 - 3 regression (T19 same-session rerun, T20 hyphen header, T21 interaction
   with `completion-verify`)
+- 5 hardening (T22 escaped pipe in cell, T23 short row schema violation,
+  T24 degenerate `memory, memory`, T25 dual-card last-wins, T26 retrospect
+  inside fenced code block)
 
 Fixtures live in `tests/fixtures/retrospect-synth-{tool,workflow,behavior,
 mixed}.jsonl` with `.expected.json` sidecars (`{expected_decision,
