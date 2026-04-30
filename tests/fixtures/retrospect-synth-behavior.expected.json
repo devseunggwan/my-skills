@@ -1,0 +1,9 @@
+{
+  "expected_decision": "pass",
+  "must_contain": [
+    "memory"
+  ],
+  "must_not_contain": [
+    "decision\": \"block\""
+  ]
+}

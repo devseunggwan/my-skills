@@ -78,6 +78,22 @@ You MUST complete each stage before proceeding to the next.
 
 **Pre-scan: Quick friction event identification** — scan the conversation for up to 5 friction events (user corrections, retries, skipped steps, stalls) BEFORE calling agents. This provides the input for agent calls.
 
+**Pre-scan Categorization (Mandatory)** — every friction event identified in pre-scan MUST be tagged with `category[]: string[]` containing ≥1 of these enumerated values. Stage 2 progression to step 3 is BLOCKED until every event has at least one category label.
+
+| Category | Signal examples (≥2 each) | Required `Tool Layer` (composition with step 4b) |
+|----------|---------------------------|--------------------------------------------------|
+| `behavioral` | "Claude가 확인 없이 결론 도출" / "한 PR에 여러 concern bundle" / "user가 동일 지적 반복" | none (Tool Layer = `—`) |
+| `tool` | "gh CLI `--state all` 부재" / "MCP 응답 지연" / "Read 출력 truncation" / "kubectl flag 부재" | **mandatory**: one of `mcp` / `cli` / `builtin` / `skill` |
+| `workflow` | "test 안 돌리고 PR" / "verify 단계 건너뜀" / "issue 안 만들고 브랜치" / "code review 생략" | optional: `skill` (when defect originates inside a skill's stage flow) |
+| `spec-gap` | "이 상황을 다루는 규칙 부재" / "SKILL.md trigger 모호" / "CLAUDE.md에 명시되지 않은 행동" | optional: `skill` (when rule gap is in a SKILL.md) |
+
+**Layer E ↔ step 4b composition matrix** (normative — referenced by step 4b and Stage 3 unified table):
+
+- A friction event MAY carry multiple categories (e.g., `[workflow, tool]` when a workflow step skip was caused by a tool flag bug).
+- When `tool` ∈ `category[]`, the event MUST also be classified into one of the 4 step-4b layers (`mcp` / `cli` / `builtin` / `skill`); the `Tool Layer` cell of the unified table cannot remain `—`.
+- For `behavioral` only events, `Tool Layer` = `—`.
+- For `workflow` or `spec-gap` events without a tool root cause, `Tool Layer` = `—`; if the workflow defect or rule gap originates within a skill, `Tool Layer` MAY be set to `skill` to enable step 4b downstream routing.
+
 **Early exit**: If pre-scan finds 0 friction events, skip agent calls and exit with "No patterns found. ✅" — do not call agents with empty input.
 
 **MANDATORY AGENT CALLS — when pre-scan finds 1+ friction events, MUST call sequentially (analyst depends on tracer output):**
@@ -106,13 +122,15 @@ You MUST complete each stage before proceeding to the next.
    - Final list: up to 5 distinct friction events with causal chains attached
 
 4. **Map each event to a CLAUDE.md rule** (or gap):
+   - Read the event's `category[]` from pre-scan and feed it into rule-mapping
    - Which rule was applicable?
    - Was it followed, violated, or simply absent?
    - Quote or paraphrase the specific moment
+   - If `category[]` includes `spec-gap`, this map step often resolves as "rule absent" — fold that signal into step 5 root cause
 
-4b. **Tool Friction Pass** — independently analyze tool/feature-level friction:
+4b. **Tool Friction Pass** — independently analyze tool/feature-level friction (cross-referenced by Layer E composition matrix above):
 
-   This pass runs SEPARATELY from step 4. A friction event may match a rule violation (step 4) AND a tool defect (step 4b) — both are recorded.
+   This pass runs SEPARATELY from step 4. A friction event may match a rule violation (step 4) AND a tool defect (step 4b) — both are recorded. Per the Layer E composition matrix, every event with `tool` ∈ `category[]` MUST be classified into one of the 4 layers below; the unified-table `Tool Layer` cell of such an event cannot remain `—`.
 
    **Tool layers to scan (all 4):**
 
@@ -169,7 +187,7 @@ You MUST complete each stage before proceeding to the next.
    e. `repeat_count` = number of distinct feedback files with matching root cause
    f. If match found with existing resolution action (issue/hook already created): mark as `resolved=true`
 
-8. **Auto-assign action type** based on escalation ladder:
+8. **Auto-assign action type** based on escalation ladder. Apply Repeat-based rows first; then apply Category-default rows below to override or compound when the event's `category[]` (from pre-scan, step 4) makes memory-only inappropriate even on first occurrence:
 
    | Condition | Action Type | Rationale |
    |-----------|-------------|-----------|
@@ -180,6 +198,10 @@ You MUST complete each stage before proceeding to the next.
    | Missing rule + Repeat | CLAUDE.md draft + GitHub issue | Missing rule caused repeat — add rule + compliance issue |
    | Tool friction (step 4b finding) | upstream feedback | Tool improvement needed — issue in the tool's **backing repo** (resolve via Stage 4 Action 4 routing table; not always praxis) |
    | One-off mistake (situational cause, unlikely to recur) | note only | No persistent action needed |
+   | **Category default — `tool`** | upstream feedback (compound with memory only when behavioral co-label exists) | step 4b backing-repo resolution; tool defect is not a Claude behavior issue, memory alone insufficient |
+   | **Category default — `workflow`** | hook code OR skill idea (memory-alone NOT allowed even on first occurrence) | enforcement gap detected — workflow steps that get skipped need structural enforcement, not memo |
+   | **Category default — `spec-gap`** | CLAUDE.md draft OR skill idea (memory-alone NOT allowed) | rule absent — gaps are filled with rules, not memos |
+   | **Category default — `behavioral`** | memory (default; compound with skill_idea or CLAUDE.md draft when structural) | only category where memory-alone is acceptable; still subject to Gate-2 rationale schema in Stage 2.5 |
 
    **Distinguishing "New pattern" vs "One-off mistake":**
    - **New pattern**: root cause is structural (missing rule, absent skill, unclear workflow) → likely to recur in future sessions
@@ -190,29 +212,117 @@ You MUST complete each stage before proceeding to the next.
 
    **Escape hatch**: If `repeat=true` AND `resolved=true` (existing issue/hook resolution already exists for this feedback), `note only` is allowed. In this case, include a sentence in the report confirming that the existing resolution is still effective.
 
+### Stage 2.5: Action Distribution Audit
+
+After Stage 2 completes (all findings have `category[]` labels and provisional `Proposed Actions`) and BEFORE Stage 3 begins, run the two gate checks below. Each finding has its own per-finding gate counter, reset at Stage 2.5 entry.
+
+**Gate-1 (Categorical)** — for each finding whose `category[]` intersects {`tool`, `workflow`, `spec-gap`}, verify `Proposed Actions` ≠ `memory` (single, not compound).
+
+If `memory` is the *only* action for such a finding → return that finding to Stage 2 step 4 (re-evaluate label correctness — Gate-1 violations are most often *mislabeling*: the event was actually behavioral but got tagged tool/workflow/spec-gap, or vice versa) AND step 8 (re-derive action with category-default rows applied).
+
+**Gate-2 (Procedural)** — for each finding with `Proposed Actions = memory` (single, not compound, regardless of category), verify the `Rationale` cell contains EXACTLY 5 lines, each matching the regex `^not (issue|claude_md_draft|skill_idea|hook_code|upstream_feedback): .+$`. The 5 lines MUST cover the 5 non-memory action types (no duplicates, no missing keys).
+
+If absent or incomplete → return that finding to Stage 2 step 8 (re-evaluate with explicit per-action rationale enforcement).
+
+**Per-finding loop cap** — maximum 2 re-entries per finding. On the 3rd violation for the same finding, surface to user with explicit prompt:
+
+> "Finding #N은 진짜 memory-only가 적합한가요? Gate-1/Gate-2가 통과되지 않습니다. rationale을 직접 입력해주시면 우회합니다."
+
+User-supplied rationale is logged but bypasses the gate for that single finding.
+
+**Behavioral-only safeguard** — if ALL findings ended up labeled `behavioral` only (no tool/workflow/spec-gap anywhere), run a final keyword sanity check on the original pre-scan signal text. If any signal contains `gh ` / `kubectl` / `MCP` / `--state` / `permission denied` / `timeout` / `--help` / `flag`, surface to user:
+
+> "모든 finding이 behavioral로 분류되었으나 pre-scan 신호 텍스트에 도구 키워드(`gh`, `MCP`, ...)가 발견됨. 라벨이 정확한지 재검토 필요."
+
+User confirmation required to proceed; if user confirms, log the keyword set found.
+
+**Output (on pass)** — Stage 2.5 emits the distribution card per the Output Schema Contract defined in Stage 3, plus per-finding Gate-1 and Gate-2 verdicts:
+
+```
+<!-- retrospect:distribution begin -->
+- memory: {n}
+- issue: {n}
+- claude_md_draft: {n}
+- skill_idea: {n}
+- hook_code: {n}
+- upstream_feedback: {n}
+- gate_1_verdict: {PASS|FAIL|NA}
+- gate_2_verdict: {PASS|FAIL|NA}
+<!-- retrospect:distribution end -->
+```
+
+`NA` = no findings of the relevant type (e.g., `gate_1_verdict: NA` when zero `tool`/`workflow`/`spec-gap` labeled findings exist).
+
+This card and verdict block become Stage 3's input header.
+
 ### Stage 3: Report + Approval
 
-**Present findings in a structured table with escalation context:**
+**Output Schema Contract** (normative — Stop hook `retrospect-mix-check.sh` parses this):
+
+Stage 3 output MUST emit, in this order:
+
+1. **Header**: a line matching `^## Retrospect Report` (em-dash or hyphen tail accepted: `## Retrospect Report — {date}` or `## Retrospect Report - {date}`).
+2. **Distribution card** between HTML comment fences. Action keys are canonical snake_case enum; verdict values are `PASS` / `FAIL` / `NA`:
+
+   ```markdown
+   <!-- AUTHORITATIVE_SCHEMA — Stop hook depends on this. Co-update hooks/retrospect-mix-check.sh + tests/test_retrospect_mix_check.sh + tests/fixtures/retrospect-synth-*.expected.json on any change to this fence or the action key set. -->
+   <!-- retrospect:distribution begin -->
+   - memory: 1
+   - issue: 0
+   - claude_md_draft: 0
+   - skill_idea: 0
+   - hook_code: 0
+   - upstream_feedback: 0
+   - gate_1_verdict: PASS
+   - gate_2_verdict: PASS
+   <!-- retrospect:distribution end -->
+   ```
+
+3. **Unified findings table** with literal column headers (no abbreviation, no reordering):
+
+   ```
+   | # | Category | Tool Layer | Pattern | Root Cause | Rule / Gap | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
+   ```
+
+   Column semantics:
+   - `Category`: comma-separated subset of `behavioral`, `tool`, `workflow`, `spec-gap` (≥1, see Stage 2 pre-scan categorization)
+   - `Tool Layer`: one of `mcp`, `cli`, `builtin`, `skill`, or `—` (mandatory non-`—` when `tool` ∈ Category, optional `skill` for `workflow` / `spec-gap`, `—` for `behavioral`)
+   - `Proposed Actions (1~2)`: comma-separated subset of `memory`, `issue`, `claude_md_draft`, `skill_idea`, `hook_code`, `upstream_feedback`
+   - `Rationale`: free-form one-line for compound or non-memory rows; for **memory-only** rows (single `memory`, not compound), the cell MUST contain exactly 5 lines matching `^not (issue|claude_md_draft|skill_idea|hook_code|upstream_feedback): .+$`, one line per non-memory action type. Generic single-sentence rationales are NOT acceptable for memory-only findings.
+
+The Stop hook parses the distribution-card fence (deterministic) and the table (anchored on these literal column headers). Drift in this contract requires synchronized edits to `hooks/retrospect-mix-check.sh`, `tests/test_retrospect_mix_check.sh`, and `tests/fixtures/retrospect-synth-*.expected.json`.
+
+**Spec AC-A3 deviation note** — earlier draft asked for "memory-only justification 한 줄" inside the distribution card. v2 relocates that justification into the unified-table `Rationale` column as the structured 5-line `not <action>: <reason>` block: strictly more informative than a single line, single source of truth, eliminates card↔table inconsistency risk.
+
+---
+
+**Present findings as a single unified table per the Output Schema Contract above:**
 
 ```
 ## Retrospect Report — {session_date}
 
-| # | Pattern | Root Cause | Rule | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
-|---|---------|------------|------|---------|------------------------|-----------|----------|
-| 1 | {pattern} | {root_cause} | {rule_ref} | {Yes(Nx)/No} | {action1} [+ {action2}] | {why_composite_or_single} | HIGH/MED/LOW |
+<!-- retrospect:distribution begin -->
+- memory: {n}
+- issue: {n}
+- claude_md_draft: {n}
+- skill_idea: {n}
+- hook_code: {n}
+- upstream_feedback: {n}
+- gate_1_verdict: {PASS|FAIL|NA}
+- gate_2_verdict: {PASS|FAIL|NA}
+<!-- retrospect:distribution end -->
+
+| # | Category | Tool Layer | Pattern | Root Cause | Rule / Gap | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
+|---|----------|------------|---------|------------|------------|---------|------------------------|-----------|----------|
+| 1 | {behavioral|tool|workflow|spec-gap, ...} | {mcp|cli|builtin|skill|—} | {pattern} | {root_cause} | {rule_ref or "gap"} | {Yes(Nx)/No} | {action1[, action2]} | {rationale: 5 `not <action>:` lines for memory-only, or one-line for compound/non-memory} | HIGH/MED/LOW |
 ...
 
-No patterns found: "This session followed all CLAUDE.md rules. ✅"
-
-### Tool/Feature Findings (from step 4b)
-
-| # | Affected Tool | Tool Layer | Friction Type | Evidence | Proposed Upstream Action | Priority |
-|---|---------------|------------|---------------|----------|--------------------------|----------|
-| T1 | {tool_name} | {mcp/cli/builtin/skill} | {friction_type} | {evidence} | {upstream feedback / note only} | HIGH/MED/LOW |
-...
-
-No tool friction found: "No tool/feature friction detected. ✅"
+No patterns found: emit the distribution card with all counts = 0 and verdicts = NA, plus literal "This session followed all CLAUDE.md rules. ✅"
 ```
+
+The unified table folds the previous dual-table layout (Pattern + Tool/Feature Findings) into one. Tool-layer information that previously lived in a separate "Tool/Feature Findings" table is now carried in the `Tool Layer` column of every row tagged with `tool` in `Category`. Reviewers see all findings in priority order without cross-referencing two tables.
+
+**Sorting**: rows SHOULD be sorted by `Priority` (HIGH → MED → LOW). Within the same priority, prefer non-memory `Proposed Actions` first so escalations surface above behavioral memos.
 
 **Action type baseline comes from Stage 2 escalation ladder**, but Stage 3 MUST explicitly evaluate all six action types per finding and select 1–2 composite actions.
 
@@ -398,8 +508,12 @@ If you catch yourself:
 - Creating a new memory file without checking existing entries for overlap (MUST merge into existing when root cause matches)
 - **Proposing MEMORY.md feedback as the only action when the same rule was violated 3+ times** — this ignores memo's proven limits; enforcement mechanisms (skill, hook, rule) MUST be evaluated alongside memory
 - **Proposing MEMORY.md feedback as the only action when the finding is a rule gap (rule absent)** — gaps are not filled by memos; CLAUDE.md draft or skill idea MUST be considered
-- **Forcing tool friction into only a rule-violation frame** — tool-layer defects from step 4b MUST be reported in the separate Tool/Feature Findings table and evaluated for `upstream feedback`, not collapsed into rule-violation findings
-- **Skipping step 4b entirely** ("no tool issues this session") — step 4b is mandatory. If no tool friction is found, record "No tool/feature friction detected. ✅" explicitly
+- **Forcing tool friction into only a rule-violation frame** — tool-layer defects from step 4b MUST be carried in the unified findings table with `Tool Layer` set to a non-`—` value and evaluated for `upstream feedback`, not collapsed into rule-violation-only findings
+- **Skipping step 4b entirely** ("no tool issues this session") — step 4b is mandatory. If no tool friction is found, the distribution card MUST emit `upstream_feedback: 0` and the report MUST state "No tool/feature friction detected. ✅" explicitly
+- **Pre-scan에서 friction event에 `category[]` 라벨링을 누락한 채 Stage 2 step 3 이상 진행** — Layer E 강제. 누락은 Stage 2 진입 전 차단되어야 한다.
+- **Memory-only finding의 `Rationale`이 5줄 `not <action>: <reason>` 형식이 아니거나 5 action type 미만 커버** — Gate-2 위반. 일반 한 줄 진술은 memory-only 근거로 부적격.
+- **Stage 2.5 분포 감사를 명시적으로 건너뛰고 Stage 3로 직행** — distribution card와 Gate-1/Gate-2 verdict 출력은 Stage 3 입력의 mandatory 전제.
+- **`tool` 라벨 finding의 `Tool Layer` 컬럼이 `—`로 비어 있음** — Layer E ↔ step 4b composition matrix 위반. tool 카테고리는 4b layer 중 하나(mcp/cli/builtin/skill)를 반드시 가져야 한다.
 
 **ALL of these mean: STOP. Return to Stage 2.**
 
@@ -408,8 +522,9 @@ If you catch yourself:
 | Stage | Key Activity | Success Criteria |
 |-------|-------------|-----------------|
 | **1. Load** | Read CLAUDE.md, form scan questions | Rule categories identified |
-| **2. Analyze** | Scan conversation, map to rules, find root cause | Root cause (not symptom) for each pattern |
-| **3. Report** | Present table, collect approval per item | User approved at least 1 item (or confirmed 0 findings) |
+| **2. Analyze** | Scan conversation, map to rules, find root cause | Root cause (not symptom) for each pattern; every event has `category[]` |
+| **2.5 Audit** | Run Gate-1 (categorical) + Gate-2 (5-line rationale schema) | Both gates PASS or per-finding cap reached and surfaced to user |
+| **3. Report** | Present unified table + distribution card, collect approval per item | User approved at least 1 item (or confirmed 0 findings) |
 | **4. Execute** | Run approved actions, verify artifacts | Completion report with links/paths + verification results |
 
 ## Error Handling
@@ -422,6 +537,10 @@ If you catch yourself:
 | Stage 2 (analyze) | MEMORY.md scan failed (file not accessible) | Treat all findings as new patterns (repeat=false). Flag scan failure in report |
 | Stage 2 (analyze) | MEMORY.md is empty | Normal processing — all findings are new patterns |
 | Stage 2 (analyze) | tracer/analyst call failed | Fall back to manual analysis. Flag agent failure in report. Warn about reduced root cause quality |
+| Stage 2 (analyze) | Pre-scan event missing `category[]` label | Block Stage 2 progression to step 3; instruct LLM to backfill labels per Layer E enumerated values |
+| Stage 2.5 (audit) | Gate-1 violation persists after 2 per-finding re-entries | Surface to user with override prompt; log user-supplied rationale |
+| Stage 2.5 (audit) | Gate-2 violation persists after 2 per-finding re-entries | Surface to user with override prompt; log user-supplied rationale |
+| Stage 2.5 (audit) | Behavioral-only safeguard triggered (tool keywords detected in pre-scan signals) | Surface to user; require explicit confirmation before proceeding to Stage 3 |
 | Stage 3 (report) | User rejects all findings | Capture the rejection itself as a feedback signal for future retrospects |
 | Stage 4 (execute) | MEMORY.md write fails | Report the path error; never silently drop the feedback |
 | Stage 4 (execute) | GitHub issue creation fails | Fall back to saving a note in `.omc/plans/` for later manual creation |
