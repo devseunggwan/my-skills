@@ -16,38 +16,17 @@ call with `--state all`. Exits 0 otherwise (transparent pass-through).
 from __future__ import annotations
 
 import json
-import re
-import shlex
+import os
 import sys
 
-# ---------------------------------------------------------------------------
-# Tokenization helpers — copied from side-effect-scan.py
-# TODO: extract to _hook_utils.py when a third hook needs them
-# ---------------------------------------------------------------------------
-SHELL_SEPARATORS = {";", "&&", "||", "|", "&"}
-ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-SHELL_KEYWORDS = {
-    "if", "then", "elif", "else", "fi",
-    "while", "until", "do", "done",
-    "case", "esac", "in", "for",
-    "{", "}", "!", "function",
-}
-PREFIX_WRAPPERS = {"env", "sudo", "nice", "time", "stdbuf", "ionice"}
-WRAPPER_OPTS_WITH_ARG = {
-    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
-    "sudo": {
-        "-u", "-g", "-p", "-C", "-D", "-r", "-t", "-T", "-U", "-h",
-        "--user", "--group", "--prompt", "--close-from", "--chdir",
-        "--role", "--type", "--host", "--other-user",
-    },
-    "nice": {"-n", "--adjustment"},
-    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
-    "time": {"-f", "--format", "-o", "--output"},
-    "ionice": {
-        "-c", "--class", "-n", "--classdata",
-        "-p", "--pid", "-P", "--pgid", "-u", "--uid",
-    },
-}
+# Resolve sibling `_hook_utils.py` regardless of cwd at invocation time.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _hook_utils import (  # type: ignore[import-not-found]  # noqa: E402
+    iter_command_starts,
+    safe_tokenize,
+    strip_prefix,
+)
 
 # gh global flags that take a separate-token argument
 GH_GLOBAL_FLAGS_WITH_ARG = frozenset({
@@ -55,72 +34,6 @@ GH_GLOBAL_FLAGS_WITH_ARG = frozenset({
     "--hostname",
     "--color",
 })
-
-
-def safe_tokenize(command: str) -> list[str]:
-    """Tokenize with shell operators split into tokens and newlines as separators."""
-    lines = [ln for ln in command.split("\n") if ln.strip()]
-    if not lines:
-        return []
-    tokens: list[str] = []
-    for idx, line in enumerate(lines):
-        if idx > 0:
-            tokens.append(";")
-        try:
-            lex = shlex.shlex(line, posix=True, punctuation_chars=";|&")
-            lex.whitespace_split = True
-            lex.commenters = ""
-            tokens.extend(list(lex))
-        except ValueError:
-            continue
-    return tokens
-
-
-def strip_prefix(argv: list[str]) -> list[str]:
-    """Peel shell keywords, env assignments, and wrapper commands off the front."""
-    i = 0
-    n = len(argv)
-    while i < n:
-        tok = argv[i]
-        if tok in SHELL_KEYWORDS:
-            i += 1
-            continue
-        if ENV_ASSIGN_RE.match(tok):
-            i += 1
-            continue
-        if tok in PREFIX_WRAPPERS:
-            wrapper = tok
-            i += 1
-            opts_with_arg = WRAPPER_OPTS_WITH_ARG.get(wrapper, set())
-            while i < n:
-                nxt = argv[i]
-                if ENV_ASSIGN_RE.match(nxt):
-                    i += 1
-                    continue
-                if not nxt.startswith("-"):
-                    break
-                if "=" in nxt:
-                    i += 1
-                    continue
-                if nxt in opts_with_arg and i + 1 < n:
-                    i += 2
-                    continue
-                i += 1
-            continue
-        break
-    return argv[i:]
-
-
-def iter_command_starts(tokens: list[str]):
-    """Yield argv slices at each command start across shell separators."""
-    start = 0
-    for i, tok in enumerate(tokens):
-        if tok in SHELL_SEPARATORS:
-            if start < i:
-                yield tokens[start:i]
-            start = i + 1
-    if start < len(tokens):
-        yield tokens[start:]
 
 
 # ---------------------------------------------------------------------------
