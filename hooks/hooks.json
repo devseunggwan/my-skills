@@ -1,5 +1,5 @@
 {
-  "description": "praxis hooks: Stop gate for completion-without-evidence, retrospect memory-bias gate, session-scoped three-strike discipline, PreToolUse(Bash) side-effect scan and gh search --state all block, PostToolUse correction for built-in task management tools",
+  "description": "praxis hooks: Stop gate for completion-without-evidence, retrospect memory-bias gate, session-scoped three-strike discipline, PreToolUse(Bash) side-effect scan / gh search --state all block / memory-hint, PostToolUse correction for built-in task management tools",
   "hooks": {
     "SessionStart": [
       {
@@ -35,6 +35,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-gh-state-all.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-hint.sh",
             "timeout": 5
           }
         ]
