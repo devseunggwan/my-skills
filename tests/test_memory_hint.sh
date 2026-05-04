@@ -137,6 +137,7 @@ run_case "17 hit: multiple distinct memories fire"     "hit:hook_gh_search.md"  
 run_case "18 hit: no description trailer"              "hit:hook_no_description.md"   "$FIXTURES_MAIN" Bash 'foo bar'
 run_case "19 silent: scalar hookKeywords skipped"      silent                          "$FIXTURES_MAIN" Bash 'kubectl_only_in_scalar_fixture'
 run_case "20 silent: case-sensitive keyword miss"      silent                          "$FIXTURES_MAIN" Bash 'Kubectl Get'
+run_case "21 hit: hookKeywords with trailing inline comment" "hit:hook_inline_comment.md" "$FIXTURES_MAIN" Bash 'bazinga now'
 
 # --- summary -----------------------------------------------------------------
 echo ""

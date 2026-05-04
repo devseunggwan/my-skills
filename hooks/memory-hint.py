@@ -81,10 +81,16 @@ def parse_frontmatter(raw: str) -> dict | None:
     if not keywords_match:
         return None
     keywords_raw = keywords_match.group(1).strip()
-    if not (keywords_raw.startswith("[") and keywords_raw.endswith("]")):
+    if not keywords_raw.startswith("["):
         # Scalar form (`hookKeywords: kubectl`) is rejected per AC-22.
         return None
-    inner = keywords_raw[1:-1].strip()
+    # Find the first `]` so a trailing inline comment doesn't break parse.
+    # `[a, b] # comment` is the natural YAML shape — anything after the
+    # closing bracket is treated as comment/garbage.
+    close_idx = keywords_raw.find("]")
+    if close_idx == -1:
+        return None
+    inner = keywords_raw[1:close_idx].strip()
     if not inner:
         return None
     keywords = [
