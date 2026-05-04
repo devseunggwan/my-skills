@@ -138,6 +138,32 @@ run_case "18 hit: no description trailer"              "hit:hook_no_description.
 run_case "19 silent: scalar hookKeywords skipped"      silent                          "$FIXTURES_MAIN" Bash 'kubectl_only_in_scalar_fixture'
 run_case "20 silent: case-sensitive keyword miss"      silent                          "$FIXTURES_MAIN" Bash 'Kubectl Get'
 run_case "21 hit: hookKeywords with trailing inline comment" "hit:hook_inline_comment.md" "$FIXTURES_MAIN" Bash 'bazinga now'
+run_case "22 hit: hookable + description with trailing comments parsed correctly" "hit:hook_full_inline_comments.md" "$FIXTURES_MAIN" Bash 'zorblax run'
+run_case "23 hit: trailing comment stripped from description visible portion" "hit:this description ends here" "$FIXTURES_MAIN" Bash 'zorblax run'
+
+description_no_leak_test() {
+  local name="24 silent: trailing yaml comment NOT leaked into stderr"
+  local payload
+  payload=$(python3 -c '
+import json, sys
+print(json.dumps({"tool_name": "Bash", "tool_input": {"command": "zorblax run"}}))')
+  local err_file
+  err_file=$(mktemp)
+  echo "$payload" | env PRAXIS_MEMORY_DIR="$FIXTURES_MAIN" "$HOOK" >/dev/null 2>"$err_file"
+  local rc=$?
+  local err
+  err=$(cat "$err_file")
+  rm -f "$err_file"
+  # rc must be 0; stderr must contain the description fragment but NOT the comment
+  if [ "$rc" -eq 0 ] && [[ "$err" == *"this description ends here"* ]] && [[ "$err" != *"# comment to be stripped"* ]]; then
+    echo "PASS  [$name]"
+    PASS=$((PASS + 1))
+  else
+    echo "FAIL  [$name] rc=$rc stderr=${err:-<empty>}"
+    FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name")
+  fi
+}
+description_no_leak_test
 
 # --- summary -----------------------------------------------------------------
 echo ""

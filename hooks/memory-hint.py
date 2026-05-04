@@ -48,13 +48,22 @@ HIT_LIMIT = 3
 TRUTHY_VALUES = {"true", "yes"}
 
 FRONTMATTER_FENCE = re.compile(r"^---\s*$", re.MULTILINE)
-HOOKABLE_RE = re.compile(r"^\s*hookable\s*:\s*(\S+)\s*$", re.MULTILINE)
-KEYWORDS_RE = re.compile(r"^\s*hookKeywords\s*:\s*(.+?)\s*$", re.MULTILINE)
-DESCRIPTION_RE = re.compile(r"^\s*description\s*:\s*(.+?)\s*$", re.MULTILINE)
+HOOKABLE_RE = re.compile(r"^\s*hookable\s*:\s*(.+)$", re.MULTILINE)
+KEYWORDS_RE = re.compile(r"^\s*hookKeywords\s*:\s*(.+)$", re.MULTILINE)
+DESCRIPTION_RE = re.compile(r"^\s*description\s*:\s*(.+)$", re.MULTILINE)
+
+# YAML inline comment: `#` preceded by whitespace (per YAML 1.2 spec). The
+# `hookKeywords` list parser additionally tolerates anything after the first
+# `]`, which covers comments without leading whitespace.
+INLINE_COMMENT_RE = re.compile(r"\s+#.*$")
 
 # Control bytes (incl. ESC for ANSI escape sequences) shouldn't reach stderr —
 # memory filenames flow through to log viewers / terminals.
 CONTROL_BYTES_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _strip_inline_comment(value: str) -> str:
+    return INLINE_COMMENT_RE.sub("", value)
 
 
 def _sanitize(text: str) -> str:
@@ -73,7 +82,12 @@ def parse_frontmatter(raw: str) -> dict | None:
     hookable_match = HOOKABLE_RE.search(block)
     if not hookable_match:
         return None
-    hookable_value = hookable_match.group(1).strip().lower().strip('"\'')
+    hookable_value = (
+        _strip_inline_comment(hookable_match.group(1))
+        .strip()
+        .lower()
+        .strip('"\'')
+    )
     if hookable_value not in TRUTHY_VALUES:
         return None
 
@@ -104,7 +118,11 @@ def parse_frontmatter(raw: str) -> dict | None:
     description_match = DESCRIPTION_RE.search(block)
     description = ""
     if description_match:
-        description = description_match.group(1).strip().strip('"\'')
+        description = (
+            _strip_inline_comment(description_match.group(1))
+            .strip()
+            .strip('"\'')
+        )
 
     return {"keywords": keywords, "description": description}
 
