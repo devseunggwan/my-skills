@@ -436,6 +436,7 @@ False-positive guards:
 | `please /codex:review later` (mid-sentence) | silent — regex anchored to start-of-prompt |
 | `/codex:status` (different command) | silent |
 | Single-worktree repo | silent — bare invocation works correctly |
+| Bare repo + 1 linked worktree | silent — `bare` blocks excluded from the count, only the linked worktree is active |
 | Not a git repo | silent — `git worktree list` returns nothing |
 | Empty prompt | silent |
 
@@ -471,12 +472,13 @@ denies).
 bash tests/test_codex_review_route.sh
 ```
 
-Covers 13 cases: 4 warn paths (bare, with flag, with `--model`,
-hyphenated form), 7 silent paths (single-worktree, plain text, different
+Covers 14 cases: 4 warn paths (bare, with flag, with `--model`,
+hyphenated form), 8 silent paths (single-worktree, plain text, different
 slash command, false-positive trailing chars, empty prompt, hyphenated
-suffix, mid-sentence mention), 2 fail-safe paths (malformed JSON,
-non-git cwd). Worktree state is fixtured via temporary `git init` repos
-to keep tests isolated from the running praxis tree.
+suffix, mid-sentence mention, bare-repo + 1 linked worktree), 2 fail-safe
+paths (malformed JSON, non-git cwd). Worktree state is fixtured via
+temporary `git init` (and `git init --bare` for the bare-repo case) to
+keep tests isolated from the running praxis tree.
 
 ## PostToolUse Built-in Task Classification
 

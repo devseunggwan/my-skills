@@ -41,12 +41,26 @@ if ! [[ "$PROMPT" =~ ^/codex(:|-)review([[:space:]]|$) ]]; then
   exit 0
 fi
 
-# Count active non-bare worktrees. `git worktree list --porcelain` emits
-# one `worktree <path>` line per entry (bare entries are followed by a
-# `bare` line; we count `worktree` lines and let bare entries resolve
-# on the consumer side — bare worktrees are rare and the wrapper handles
-# them correctly).
-WT_COUNT=$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /' | wc -l | tr -d ' ')
+# Count active non-bare, non-prunable worktrees. `git worktree list
+# --porcelain` emits one block per entry (blank-line separated), each
+# starting with `worktree <path>`. Bare repos have a `bare` line; stale
+# worktrees have a `prunable` line. Both must be excluded — counting raw
+# `worktree` lines would over-count bare-repo + linked-worktree setups
+# and trigger false-positive warnings on single-target reviews.
+WT_COUNT=$(git worktree list --porcelain 2>/dev/null | awk '
+  /^$/ {
+    if (in_block && !is_bare && !is_prunable) count++
+    in_block = 0; is_bare = 0; is_prunable = 0
+    next
+  }
+  /^worktree / { in_block = 1 }
+  /^bare$/ { is_bare = 1 }
+  /^prunable( |$)/ { is_prunable = 1 }
+  END {
+    if (in_block && !is_bare && !is_prunable) count++
+    print count + 0
+  }
+')
 
 if ! [[ "$WT_COUNT" =~ ^[0-9]+$ ]]; then
   exit 0

@@ -57,6 +57,27 @@ make_single_wt_repo() {
   cd - >/dev/null || true
 }
 
+# --- bare + 1 linked worktree fixture ---------------------------------------
+# Reproduces the false-positive case: `git worktree list --porcelain` shows
+# 2 `worktree <path>` lines (bare repo + 1 linked), but only the linked one
+# is an active non-bare worktree. The hook must count it as 1 and stay
+# silent on /codex:review invocations.
+make_bare_plus_linked_repo() {
+  local base="$1"
+  mkdir -p "$base"
+  local seed="$base/_seed"
+  mkdir -p "$seed"
+  ( cd "$seed" \
+      && git init -q -b main \
+      && git config user.email "test@example.com" \
+      && git config user.name "Test" \
+      && echo "x" > a.txt \
+      && git add a.txt \
+      && git commit -qm "init" )
+  git clone -q --bare "$seed" "$base/bare" 2>/dev/null
+  ( cd "$base/bare" && git worktree add -q "$base/linked" main 2>/dev/null )
+}
+
 run_case() {
   local name="$1" expectation="$2" cwd="$3" prompt="$4"
 
@@ -106,14 +127,17 @@ print(json.dumps({"prompt": sys.argv[1], "session_id": "test-sid"}))' "$prompt")
 TMPROOT=$(mktemp -d)
 MULTI="$TMPROOT/multi"
 SINGLE="$TMPROOT/single"
+BARE_LINKED="$TMPROOT/bare-plus-linked"
 
 make_multi_wt_repo "$MULTI"
 make_single_wt_repo "$SINGLE"
+make_bare_plus_linked_repo "$BARE_LINKED"
 
-# Sanity check: verify worktree counts are as expected
+# Sanity check: verify raw worktree-line counts (NOT the hook's filtered count)
 multi_count=$(cd "$MULTI" && git worktree list --porcelain 2>/dev/null | awk '/^worktree /' | wc -l | tr -d ' ')
 single_count=$(cd "$SINGLE" && git worktree list --porcelain 2>/dev/null | awk '/^worktree /' | wc -l | tr -d ' ')
-echo "fixture: multi=$multi_count worktrees, single=$single_count worktree"
+bare_raw_count=$(cd "$BARE_LINKED/linked" && git worktree list --porcelain 2>/dev/null | awk '/^worktree /' | wc -l | tr -d ' ')
+echo "fixture: multi=$multi_count, single=$single_count, bare-plus-linked raw=$bare_raw_count (hook should filter to 1)"
 
 # --- /codex:review trigger paths --------------------------------------------
 run_case "1 warn: bare /codex:review in multi-worktree"          warn   "$MULTI"  "/codex:review"
@@ -129,6 +153,9 @@ run_case "8 silent: /codex:reviews (false-positive guard)"         silent "$MULT
 run_case "9 silent: empty prompt"                                  silent "$MULTI"  ""
 run_case "10 silent: /codex:review-thing trailing chars"           silent "$MULTI"  "/codex:review-thing"
 run_case "11 silent: prompt mentions /codex:review mid-sentence"   silent "$MULTI"  "use /codex:review later"
+
+# --- bare-repo + linked worktree (false-positive guard) ---------------------
+run_case "11b silent: bare repo + 1 linked worktree counts as 1"   silent "$BARE_LINKED/linked" "/codex:review"
 
 # --- malformed input fail-safe ----------------------------------------------
 malformed_json_test() {
