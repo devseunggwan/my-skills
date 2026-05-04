@@ -47,7 +47,7 @@ When a project's `CLAUDE.md` does not provide routing, these built-in defaults a
 | Verify | — (built-in) | Auto-detect: `pytest`, `npm test`, `ruff check`, etc. |
 | Code review | Project CLAUDE.md review skill routing | `oh-my-claudecode:code-reviewer` agent |
 | PR creation | Project CLAUDE.md PR-creation skill routing | `gh pr create` with auto-detected repo |
-| Merge | — (built-in) | `gh pr merge --squash --delete-branch` |
+| Merge | — (built-in) | `gh pr merge --squash` (branch deletion handled by Stage 6, not `--delete-branch`) |
 | Compound | — (built-in) | Inline code comments with PR reference |
 | Cleanup | — (built-in) | `git worktree remove` + `git branch -d` |
 
@@ -272,7 +272,12 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   ELAPSED=$((ELAPSED + 10))
 done
 
-gh pr merge "$PR_NUMBER" --repo "${TARGET_REPO}" --squash --delete-branch
+# Note: `--delete-branch` is intentionally omitted. From a multi-worktree
+# session, gh's local cleanup tries to checkout the default branch and fails
+# with `fatal: '<branch>' is already used by worktree at '<path>'`, leaving
+# a partial-fail (PR merged on GitHub, local branch still present). Stage 6
+# handles local + remote branch deletion explicitly instead.
+gh pr merge "$PR_NUMBER" --repo "${TARGET_REPO}" --squash
 ```
 
 ### Stage 6: Cleanup
@@ -289,11 +294,23 @@ PR #<number> merged. How to proceed?
 #### Option 1: Full Cleanup (recommended)
 
 ```bash
+# Step out of the issue worktree first so we can remove it.
 cd "$MAIN_REPO"
+
+# Remove the issue worktree, then the local branch. `-D` (force) is required
+# because squash-merged branches are not ancestors of the merge commit, so
+# `-d` (safe) refuses to delete them.
 git worktree remove "$WORKTREE_PATH"
-git branch -d "$BRANCH" 2>/dev/null
-git checkout "$DEFAULT_BRANCH"
-git pull origin "$DEFAULT_BRANCH"
+git branch -D "$BRANCH" 2>/dev/null
+
+# Best-effort remote branch delete. Silent no-op when GitHub repo settings
+# auto-delete merged branches; required for repos without that setting.
+git push origin --delete "$BRANCH" 2>/dev/null
+
+# Refresh main from origin (MAIN_REPO already has $DEFAULT_BRANCH checked
+# out, so no `git checkout` is needed and would conflict with other
+# worktrees if attempted).
+git -C "$MAIN_REPO" pull --ff-only origin "$DEFAULT_BRANCH"
 git worktree prune
 ```
 
@@ -371,7 +388,8 @@ Review this work cycle and capture reusable lessons:
 | CI | Check failure | Analyze logs, auto-fix (1x), then STOP |
 | Merge | Conflict | **STOP** — report to user |
 | Merge | Approval required | **STOP** — report to user |
-| Cleanup | Worktree busy | Report, suggest manual cleanup |
+| Cleanup | Worktree busy (cwd inside it) | `cd "$MAIN_REPO"` first, then retry — Stage 6 already does this |
+| Cleanup | Default branch checked out elsewhere | Skip local checkout step; `git -C "$MAIN_REPO" pull` updates the parent worktree directly |
 
 **Escalation pattern:**
 ```
