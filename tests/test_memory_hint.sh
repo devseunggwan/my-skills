@@ -165,6 +165,36 @@ print(json.dumps({"tool_name": "Bash", "tool_input": {"command": "zorblax run"}}
 }
 description_no_leak_test
 
+# --- AC-25 / AC-26: fail-open on undecodable memory file --------------------
+run_case "25 hit: undecodable peer does not break sibling matches" "hit:hook_kubectl.md" "$FIXTURES_MAIN" Bash 'kubectl get pods'
+
+undecodable_silent_test() {
+  local name="26 silent: undecodable memory alone exits 0 silently"
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  cp "$FIXTURES_MAIN/non_utf8.md" "$tmpdir/non_utf8.md"
+  local payload
+  payload=$(python3 -c '
+import json
+print(json.dumps({"tool_name": "Bash", "tool_input": {"command": "kubectl get pods"}}))')
+  local err_file
+  err_file=$(mktemp)
+  echo "$payload" | env PRAXIS_MEMORY_DIR="$tmpdir" "$HOOK" >/dev/null 2>"$err_file"
+  local rc=$?
+  local err
+  err=$(cat "$err_file")
+  rm -f "$err_file"
+  rm -rf "$tmpdir"
+  if [ "$rc" -eq 0 ] && [ -z "$err" ]; then
+    echo "PASS  [$name]"
+    PASS=$((PASS + 1))
+  else
+    echo "FAIL  [$name] rc=$rc stderr=${err:-<empty>}"
+    FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name")
+  fi
+}
+undecodable_silent_test
+
 # --- summary -----------------------------------------------------------------
 echo ""
 echo "Passed: $PASS  Failed: $FAIL"

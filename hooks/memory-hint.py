@@ -155,7 +155,7 @@ def index_memories(directory: str) -> list[tuple[str, dict, float]]:
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 raw = fh.read()
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             continue
         try:
             parsed = parse_frontmatter(raw)
