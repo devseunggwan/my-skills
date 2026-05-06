@@ -9,17 +9,16 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 | Tier | What works | Dependencies |
 |------|-----------|--------------|
 | **Standalone** | recover-sessions, strike / strikes / reset-strikes | `gh` CLI, `jq` (for strike skills) |
-| **Enhanced** | + debug, retrospect | + oh-my-claudecode |
+| **Enhanced** | + retrospect | + oh-my-claudecode |
 | **Full** | + all cmux-* skills | + cmux |
 | **Multi-provider** | + codex/gemini routing in cmux-* | + codex-cli, gemini-cli |
 
-## Skills (12)
+## Skills (11)
 
 ### Development
 
 | Skill | Purpose |
 |-------|---------|
-| `debug` | Systematic 4-phase debugging — root cause investigation before any fix |
 | `retrospect` | Session retrospect — find friction root causes, propose improvements |
 
 ### Discipline

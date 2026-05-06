@@ -10,7 +10,6 @@ Development workflow skills for Claude Code — disciplined, fast, resilient.
 
 | Skill | Description |
 |-------|-------------|
-| `debug` | Systematic 4-phase debugging — root cause investigation before any fix attempt |
 | `retrospect` | Session retrospect — scan conversation against CLAUDE.md, find friction root causes, propose and execute improvements |
 
 ### Session Management
@@ -38,7 +37,7 @@ Most skills delegate to external agents or session managers. Install the depende
 | Tier | What works | What you need |
 |------|-----------|---------------|
 | **Standalone** | recover-sessions | `gh` CLI only |
-| **Enhanced** | + debug, retrospect | + oh-my-claudecode |
+| **Enhanced** | + retrospect | + oh-my-claudecode |
 | **Full** | + all cmux-* skills | + cmux |
 
 > Skills in higher tiers fall back to manual/built-in alternatives when their dependencies are missing, but with reduced functionality.
