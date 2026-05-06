@@ -550,7 +550,7 @@ If you catch yourself:
 ## Integration
 
 **Entry point:** End of a working session, or after a particularly rough workflow experience
-**Exit point:** Completion report shown → optionally chain to next session's `turbo-setup`
+**Exit point:** Completion report shown — improvements applied to the next working session
 
 **OMC delegation:**
 - `tracer` agent: causal chain analysis for complex friction patterns

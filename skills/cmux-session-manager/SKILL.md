@@ -196,7 +196,6 @@ The report includes status output + PR status from `sidebar-state`'s `pr=` field
 - **cmux-save-sessions**: Capture current state before running cleanup (recovery point)
 - **cmux-resume-sessions**: Restore a saved layout if cleanup removes too much
 - **cmux-recover-sessions**: Post-crash recovery (different scope — not for daily use)
-- **cmux-orchestrator**: Worker workspaces get category-tagged automatically via the init hook
 
 **Automation:**
 - Init hook: auto-classify on `session-start` (see "Init Hook" section)
