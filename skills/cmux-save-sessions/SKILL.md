@@ -125,7 +125,6 @@ done
 - **cmux-resume-sessions**: Consumes JSON saved by this skill
 - **cmux-recover-sessions**: Can reference snapshots as recovery data during crash recovery
 - **cmux-session-manager**: Similar to status but provides persistent records
-- **cmux-orchestrator**: Save worker configurations as snapshots
 
 ## Troubleshooting
 

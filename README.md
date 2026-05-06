@@ -22,7 +22,6 @@ Development workflow skills for Claude Code — disciplined, fast, resilient.
 | `cmux-save-sessions` | Save cmux session list as a JSON snapshot for later restore |
 | `cmux-resume-sessions` | Restore cmux workspaces from a saved JSON snapshot |
 | `cmux-session-manager` | cmux session lifecycle automation — status, cleanup, init, report |
-| `cmux-orchestrator` | Dispatch and supervise multiple Claude Code workers in cmux workspaces |
 
 ## Prerequisites
 

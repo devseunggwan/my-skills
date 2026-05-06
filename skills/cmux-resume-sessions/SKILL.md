@@ -110,7 +110,6 @@ Done. Created: 2 | Skipped: 1 | Failed: 1
 
 - **cmux-save-sessions**: Produces the input data for this skill
 - **cmux-session-manager**: Use `status` to verify results after restore
-- **cmux-orchestrator**: Can restart workers in restored workspaces
 
 ## Troubleshooting
 

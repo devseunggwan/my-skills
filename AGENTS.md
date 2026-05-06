@@ -13,7 +13,7 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 | **Full** | + all cmux-* skills | + cmux |
 | **Multi-provider** | + codex/gemini routing in cmux-* | + codex-cli, gemini-cli |
 
-## Skills (13)
+## Skills (12)
 
 ### Development
 
@@ -40,7 +40,6 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 | `recover-sessions` | Bulk recover sessions after power loss (tmux backend) |
 | `cmux-session-manager` | Daily session lifecycle — status dashboard, cleanup, reorganize |
 | `cmux-delegate` | Delegate a task to an independent session with auto-collected context |
-| `cmux-orchestrator` | Dispatch and supervise parallel Claude Code workers in cmux |
 | `cmux-browser` | Browser automation E2E testing via cmux browser CLI — SPA hydration wait included |
 
 ## Design Principles
@@ -51,7 +50,7 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 
 ## Provider Routing
 
-Skills that dispatch external CLI workers (`cmux-orchestrator`, `cmux-delegate`) can route tasks to multiple AI providers. When only `claude` is installed, the system behaves exactly as before — no errors, no degradation.
+Skills that dispatch external CLI workers (`cmux-delegate`) can route tasks to multiple AI providers. When only `claude` is installed, the system behaves exactly as before — no errors, no degradation.
 
 ### Provider CLI Spec
 
