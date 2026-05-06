@@ -8,20 +8,12 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 
 | Tier | What works | Dependencies |
 |------|-----------|--------------|
-| **Standalone** | turbo-setup, recover-sessions, strike / strikes / reset-strikes | `gh` CLI, `jq` (for strike skills) |
-| **Enhanced** | + turbo-implement, turbo-completion, debug, retrospect | + oh-my-claudecode |
+| **Standalone** | recover-sessions, strike / strikes / reset-strikes | `gh` CLI, `jq` (for strike skills) |
+| **Enhanced** | + debug, retrospect | + oh-my-claudecode |
 | **Full** | + all cmux-* skills | + cmux |
-| **Multi-provider** | + codex/gemini routing in cmux-*, turbo-implement | + codex-cli, gemini-cli |
+| **Multi-provider** | + codex/gemini routing in cmux-* | + codex-cli, gemini-cli |
 
-## Skills (16)
-
-### Workflow Lifecycle
-
-| Skill | Purpose | Pluggable Steps |
-|-------|---------|-----------------|
-| `turbo-setup` | Compound setup — issue + plan + branch + worktree + deps in one pass | issue creation, planning |
-| `turbo-implement` | Implementation orchestrator — selects execution mode and chains to delivery | ralph, autopilot (pluggable) |
-| `turbo-completion` | Compound completion — verify + review + PR + merge + cleanup (--verify-only for standalone verification) | code review, PR creation |
+## Skills (13)
 
 ### Development
 
@@ -51,44 +43,15 @@ Each skill is an orchestrator with pluggable steps. External integrations (issue
 | `cmux-orchestrator` | Dispatch and supervise parallel Claude Code workers in cmux |
 | `cmux-browser` | Browser automation E2E testing via cmux browser CLI — SPA hydration wait included |
 
-## Architecture
-
-```
-Project CLAUDE.md (routing config)
-        │
-        ▼
-┌─ turbo-setup ────────────────────────────────────┐
-│  issue(pluggable) → plan(pluggable) → branch     │
-│  → worktree → deps                               │
-└──────────────────────────────────────────────────┘
-        │
-        ▼
-┌─ turbo-implement ────────────────────────────────┐
-│  context → mode select → execute → chain         │
-│  modes: manual | ralph | autopilot | guided | codex│
-└──────────────────────────────────────────────────┘
-        │
-        ▼
-┌─ turbo-completion ───────────────────────────────┐
-│  Stage 0: mode detect (verify-only / full / merge)│
-│  Full:  verify → review(pluggable) → PR(pluggable)│
-│  Both:  compound → merge → cleanup → learn       │
-└──────────────────────────────────────────────────┘
-```
-
-**Pluggable** = delegated to project's CLAUDE.md routing. Default: `gh` CLI.
-**Built-in** = git operations, universal across all projects.
-
 ## Design Principles
 
-- **Orchestrator + pluggable steps**: turbo-* stay as single skills, each step is swappable via CLAUDE.md routing
 - **CLAUDE.md is the interface**: no config files — project instructions define routing
-- **SRP per skill**: each skill has one responsibility, chaining connects them
+- **SRP per skill**: each skill has one responsibility
 - **Discipline over convenience**: Iron Laws gate each phase, no skipping
 
 ## Provider Routing
 
-Skills that dispatch external CLI workers (`cmux-orchestrator`, `cmux-delegate`, `turbo-implement`) can route tasks to multiple AI providers. When only `claude` is installed, the system behaves exactly as before — no errors, no degradation.
+Skills that dispatch external CLI workers (`cmux-orchestrator`, `cmux-delegate`) can route tasks to multiple AI providers. When only `claude` is installed, the system behaves exactly as before — no errors, no degradation.
 
 ### Provider CLI Spec
 

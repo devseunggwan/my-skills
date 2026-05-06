@@ -6,14 +6,6 @@ Development workflow skills for Claude Code — disciplined, fast, resilient.
 
 ## Skills
 
-### Workflow
-
-| Skill | Description |
-|-------|-------------|
-| `turbo-setup` | Compound setup — issue + plan + branch + worktree + deps in one step |
-| `turbo-implement` | Implementation orchestrator — mode selection (manual/ralph/autopilot/guided) and chaining |
-| `turbo-completion` | Compound completion — verify + review + PR + merge + cleanup in one step (--verify-only for standalone verification) |
-
 ### Development
 
 | Skill | Description |
@@ -40,15 +32,15 @@ Most skills delegate to external agents or session managers. Install the depende
 |------------|-------------|---------|
 | **oh-my-claudecode** | Agent delegation (tracer, analyst, ultraqa, code-reviewer) | `omc install` |
 | **cmux** | Session management skills (cmux-*) | `npm i -g @anthropic/cmux` |
-| **gh CLI** | Issue/PR operations (turbo-*) | `brew install gh` |
+| **gh CLI** | Issue/PR operations referenced from skills | `brew install gh` |
 
 ### Compatibility Tiers
 
 | Tier | What works | What you need |
 |------|-----------|---------------|
-| **Standalone** | turbo-setup, recover-sessions | `gh` CLI only |
-| **Enhanced** | + turbo-implement, turbo-completion, debug, retrospect | + oh-my-claudecode |
-| **Full** | + all cmux-* skills, + turbo-setup auto-opens cmux workspace after worktree creation | + cmux |
+| **Standalone** | recover-sessions | `gh` CLI only |
+| **Enhanced** | + debug, retrospect | + oh-my-claudecode |
+| **Full** | + all cmux-* skills | + cmux |
 
 > Skills in higher tiers fall back to manual/built-in alternatives when their dependencies are missing, but with reduced functionality.
 

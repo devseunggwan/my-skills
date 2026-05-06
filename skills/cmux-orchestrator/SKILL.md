@@ -12,8 +12,6 @@ Each worker is a separate process — master crash does NOT kill workers.
 
 **Core principle:** Workers are independent. Coordination is file-based. Crashes are recoverable.
 
-**Chains:** `turbo-setup` → execute → `turbo-completion` as a full pipeline per worker.
-
 ## The Iron Law
 
 ```
@@ -387,27 +385,6 @@ recover_orchestrator() {
 }
 ```
 
-## Full Pipeline Mode
-
-Chain turbo-setup → execute → turbo-completion per worker:
-
-```bash
-# Each worker runs the full lifecycle
-# Full pipeline always uses claude (turbo-* skills require Claude Code)
-# Provider routing applies only to standalone task dispatch (Step 3)
-full_pipeline_cmd() {
-  local task="$1" model="$2" budget="$3"
-  echo "claude -p '
-    Phase 1: Run /turbo-setup for: ${task}
-    Phase 2: Implement the task (use /cmux-delegate --model codex if pure implementation)
-    Phase 3: Run /turbo-completion
-  ' --output-format stream-json --verbose \
-    --permission-mode auto \
-    --model ${model:-sonnet} \
-    --max-budget-usd ${budget}"
-}
-```
-
 ## Rationalization Prevention
 
 | Excuse | Reality |
@@ -425,15 +402,13 @@ full_pipeline_cmd() {
 ```
 [user provides task list]
   → [cmux-orchestrator]
-     ├─ [worker 1] turbo-setup → execute → turbo-completion
-     ├─ [worker 2] turbo-setup → execute → turbo-completion
-     └─ [worker 3] turbo-setup → execute → turbo-completion
+     ├─ [worker 1] dispatch → execute → collect
+     ├─ [worker 2] dispatch → execute → collect
+     └─ [worker 3] dispatch → execute → collect
   → [results summary]
 ```
 
 **Depends on:**
-- `turbo-setup` (per-worker setup automation)
-- `turbo-completion` (per-worker delivery automation)
 - Model Routing Rules (from CLAUDE.md)
 - cmux CLI (`new-workspace`, `read-screen`, `send-key`, `list-workspaces`)
 
