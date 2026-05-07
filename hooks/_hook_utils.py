@@ -69,6 +69,17 @@ def safe_tokenize(command: str) -> list[str]:
     synthetic `;` between line tokens so iter_command_starts sees the break.
     Lines that fail to parse (unmatched quote, runaway heredoc, etc.) are
     skipped — better a silent pass than a crashed hook.
+
+    Caller note: a multi-line value inside a quoted flag (e.g.
+    ``gh pr create --body "line1\\nline2"``) is split at the unescaped
+    newline, separating ``--body`` from its value. In test payloads, use a
+    heredoc-assigned variable instead::
+
+        BODY=$(cat <<'EOF'
+        Caller chain verified: ...
+        EOF
+        )
+        gh pr create --body "$BODY"
     """
     lines = [ln for ln in command.split("\n") if ln.strip()]
     if not lines:
