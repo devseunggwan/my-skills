@@ -113,11 +113,17 @@ install_path=$(jq -r '.plugins["codex@openai-codex"][0].installPath // empty' "$
 companion="$install_path/scripts/codex-companion.mjs"
 ```
 
-If `$companion` is empty or the file does not exist, abort:
-```
-Error: codex-companion.mjs 를 찾을 수 없습니다.
-openai-codex plugin 이 설치되어 있는지 확인하세요.
-```
+If `$companion` is empty or the file does not exist:
+
+1. Output: `"⚠ codex-companion.mjs not found — openai-codex plugin may not be installed."`
+2. Offer alternatives via `AskUserQuestion`:
+   - **`oh-my-claudecode:code-reviewer`** — Claude-based code review (equivalent quality)
+   - **`Manual`** — output the diff for direct inspection; skip automated review
+   - **`Cancel`** — abort the review
+3. Act on the selection:
+   - `oh-my-claudecode:code-reviewer` → `Skill("oh-my-claudecode:code-reviewer")` with cwd set to `{selected_path}`
+   - `Manual` → run `git diff origin/<base-branch>..HEAD` in `{selected_path}` and exit
+   - `Cancel` → abort silently with one-line message
 
 The script derives its own ROOT_DIR via `import.meta.url`, so passing the
 absolute script path to `node` is sufficient — `CLAUDE_PLUGIN_ROOT` does
@@ -147,8 +153,8 @@ and tell the user: "Codex review started in the background. Check `/codex:status
 | `git worktree list` fails (not a git repo) | Abort: "git worktree list 실패 — git 저장소인지 확인하세요." |
 | All worktrees are bare | Treat as Case A (single effective target) using cwd |
 | User selects "취소" | Abort silently with one-line message |
-| `installed_plugins.json` missing or codex entry absent | Abort with install hint (Step 4a) |
-| Resolved `codex-companion.mjs` path does not exist | Abort with install hint (Step 4a) |
+| `installed_plugins.json` missing or codex entry absent | Offer alternatives via `AskUserQuestion` (Step 4a) |
+| Resolved `codex-companion.mjs` path does not exist | Offer alternatives via `AskUserQuestion` (Step 4a) |
 
 ## Example Flow
 
