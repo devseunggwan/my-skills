@@ -96,23 +96,49 @@ If the selected path differs from cwd, note it explicitly:
 ⚠ cwd ({cwd}) ≠ review target ({selected_path}) — codex:review 를 선택된 경로에서 실행합니다.
 ```
 
-### Step 4: Delegate to /codex:review
+### Step 4: Run codex-companion against the selected worktree
 
-Change working directory to the selected worktree path, then invoke the Skill:
+`/codex:review` declares `disable-model-invocation: true`, so it cannot be
+called via `Skill(...)` from inside another skill. Invoke the underlying
+companion script directly instead — this mirrors what `/codex:review` does
+in its own foreground flow.
 
+#### 4a. Resolve the codex-companion.mjs path
+
+Read the install path from the canonical Claude Code plugin manifest:
+
+```bash
+manifest="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
+install_path=$(jq -r '.plugins["codex@openai-codex"][0].installPath // empty' "$manifest")
+companion="$install_path/scripts/codex-companion.mjs"
 ```
-cd {selected_path}
-Skill("codex:review", args="{{ARGUMENTS}}")
-```
 
-`{{ARGUMENTS}}` passes any flags (e.g. `--model opus`) through unchanged.
-
-If `codex:review` skill is not available (plugin not installed), output:
+If `$companion` is empty or the file does not exist, abort:
 ```
-Error: /codex:review skill 을 찾을 수 없습니다.
+Error: codex-companion.mjs 를 찾을 수 없습니다.
 openai-codex plugin 이 설치되어 있는지 확인하세요.
 ```
-and abort.
+
+The script derives its own ROOT_DIR via `import.meta.url`, so passing the
+absolute script path to `node` is sufficient — `CLAUDE_PLUGIN_ROOT` does
+not need to be set.
+
+#### 4b. Run the review
+
+Change working directory to the selected worktree, then invoke the
+companion. `{{ARGUMENTS}}` passes any flags (e.g. `--model opus`,
+`--wait`, `--background`) through unchanged.
+
+```bash
+cd {selected_path}
+node "{resolved_companion_path}" review "{{ARGUMENTS}}"
+```
+
+Return the script's stdout **verbatim** — do not paraphrase, summarize, or
+add commentary. This matches `/codex:review`'s contract.
+
+If `{{ARGUMENTS}}` includes `--background`, run via `Bash(..., run_in_background: true)`
+and tell the user: "Codex review started in the background. Check `/codex:status` for progress."
 
 ## Error Handling
 
@@ -121,7 +147,8 @@ and abort.
 | `git worktree list` fails (not a git repo) | Abort: "git worktree list 실패 — git 저장소인지 확인하세요." |
 | All worktrees are bare | Treat as Case A (single effective target) using cwd |
 | User selects "취소" | Abort silently with one-line message |
-| codex:review skill not found | Abort with install hint |
+| `installed_plugins.json` missing or codex entry absent | Abort with install hint (Step 4a) |
+| Resolved `codex-companion.mjs` path does not exist | Abort with install hint (Step 4a) |
 
 ## Example Flow
 
@@ -142,7 +169,8 @@ user selects: 1
 [Step 3] Review target: /Users/dev/project-wt/windmill-hub-1539 (branch: issue-1539-windmill-runner)
   ⚠ cwd (/Users/dev/project/laplace-dev-hub) ≠ review target
 
-[Step 4] cd /Users/dev/project-wt/windmill-hub-1539 → Skill("codex:review")
+[Step 4] cd /Users/dev/project-wt/windmill-hub-1539
+         → node {install_path}/scripts/codex-companion.mjs review
 ```
 
 ## Limitations
