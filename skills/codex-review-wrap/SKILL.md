@@ -3,8 +3,11 @@ name: codex-review-wrap
 description: >
   Worktree-aware wrapper for /codex:review. When multiple active worktrees exist,
   forces explicit selection before delegating to Codex. Prevents silent cwd mismatch
-  between the current shell location and the intended review target.
-  Triggers on "codex review", "review codex", "safe review", "/codex-review-wrap".
+  between the current shell location and the intended review target. Also enforces
+  a premise verification gate before applying fact-modifying findings, with flip
+  detection that halts A→B→A oscillation across rounds within the same session.
+  Triggers on "codex review", "review codex", "safe review", "/codex-review-wrap",
+  "premise verification", "flip detection".
 ---
 
 # codex-review-wrap
@@ -21,6 +24,11 @@ This wrapper intercepts before Codex runs:
 2. If **≥ 2 worktrees** are active → `AskUserQuestion` forces explicit selection
 3. If **exactly 1** → proceeds automatically (same as current `/codex:review` behaviour)
 4. Delegates to `/codex:review` with the confirmed worktree as cwd
+
+After Codex returns, a second responsibility activates: every fact-modifying
+finding must pass an independent premise check before it becomes an edit, and
+the wrapper maintains a session ledger that halts same-session A→B→A flips.
+See **Step 5** for the gate.
 
 ## When to Use
 
@@ -146,6 +154,120 @@ add commentary. This matches `/codex:review`'s contract.
 If `{{ARGUMENTS}}` includes `--background`, run via `Bash(..., run_in_background: true)`
 and tell the user: "Codex review started in the background. Check `/codex:status` for progress."
 
+### Step 5: Apply Findings — Premise Verification Gate
+
+Codex review output is advisory, not authoritative. Findings whose rationale
+depends on assumed facts (table contents, column names, CLI flag shapes,
+filter semantics) must be verified against the actual system before any
+edit is applied. Skipping this gate is the cause of A→B→A flip oscillation
+across consecutive Codex rounds.
+
+This step runs once Codex has returned its findings and the agent is about
+to translate them into edits. It applies to every round in the same
+session, not just the first. Terminology used below:
+
+- **round** — one invocation of Codex review (Step 4 produces one round of findings)
+- **session** — the assistant's working-memory lifetime; the Step 5c ledger lives here
+
+#### 5a. Classify each finding
+
+| Type | Examples | Premise check required |
+|------|----------|------------------------|
+| **Fact-modifying** | WHERE / filter logic, catalog / schema / table / column names, CLI flag or option references, API endpoint / signature, version or SDK identifiers, **string literals used as identifiers** (provider keys, env names, lookup tokens) | **YES** |
+| **Structural** | Code organization, function decomposition, file layout, renames of code symbols only (variables, functions, types) when no string literal is touched | No |
+| **Stylistic** | Comments, formatting, lint-style suggestions | No |
+
+A finding is **fact-modifying** if accepting it would change a value the
+running system reads or matches against (filter predicate, identifier
+lookup, CLI invocation, network call, string-keyed lookup). Anything
+else is structural or stylistic. When in doubt, treat the finding as
+fact-modifying — false positives cost one extra verification call;
+false negatives cause the exact flip-oscillation this gate prevents.
+
+#### 5b. Verify the premise before applying fact-modifying findings
+
+For each fact-modifying finding, run one independent check that would
+**falsify** the underlying premise. Capture the verification output and
+keep it for 5d. If the verification disproves the premise, do NOT apply
+the finding — reply to Codex (or surface to the user) with the result.
+
+##### Verification methods by finding type
+
+This table is the canonical reference for the AC #3 documentation
+requirement; lift it when authoring related skills.
+
+| Finding type | Verification method |
+|--------------|---------------------|
+| WHERE clause / filter logic | Run the query with and without the filter; compare row counts against the rationale |
+| Catalog / schema / table name | `SHOW CATALOGS` / `SHOW SCHEMAS` / `SHOW TABLES` (or equivalent MCP / Trino / live-env query) |
+| Column name | `DESCRIBE <table>` against the live env |
+| CLI flag / option | `<binary> --help` and a real dry-run invocation — naming-pattern intuition is **not** verification |
+| API endpoint / signature | Hit the live endpoint, read the official docs, or grep the SDK source |
+| Version / SDK identifier | Resolve via Context7 or the official changelog — never trust training data |
+
+##### Recursive premise (one level only)
+
+If the verification command itself depends on a fact, falsify that
+prerequisite first — but cap recursion at **one level**. Example: a
+verification SQL `SELECT col_a FROM t WHERE join_key = ?` assumes
+`join_key` exists; run `DESCRIBE t` once before running the SELECT.
+Do not recurse further (don't verify that DESCRIBE itself works) —
+once is enough. Premise-falsification before public claim — see
+global CLAUDE.md "External-Surface Write Requires Falsification".
+
+#### 5c. Flip detection — halt A→B→A oscillation
+
+Maintain a per-session ledger across all rounds in the same session.
+The ledger has **two record shapes** — applied edits and rejected
+proposals — both must be tracked because a finding rejected in round N
+can re-appear in round N+M and would otherwise look novel:
+
+```
+applied:  {file}:{line-or-region} | round={N} | {value-before} → {value-after}
+rejected: {file}:{line-or-region} | round={N} | {value-before} → {value-after} | reason: {falsifying evidence}
+```
+
+Before applying any new edit, scan **both** record types in the ledger.
+A flip fires when:
+
+1. **Applied flip** — the new edit would revert a previously-applied
+   change (`applied: A → B` then new proposal `B → A` on the same region).
+2. **Re-proposal of rejected** — a finding that was already rejected
+   in an earlier round is being proposed again with the same value
+   transition (`rejected: A → B` then new proposal `A → B` again).
+
+In either case, STOP and surface to the user:
+
+```
+⚠ Flip detected: {file}:{region}
+   Round N {applied|rejected}: {A} → {B}
+   Round N+M now suggests:     {B} → {A}    (or same A → B for re-proposal)
+Both findings cannot be simultaneously correct.
+Resolve before applying further edits.
+```
+
+Do not apply either side of a flip without explicit user direction. The
+ledger lives in the assistant's working memory for the session only —
+flip detection is inherently same-session and does not require
+cross-session persistence.
+
+#### 5d. Record verification in the commit message
+
+When committing a fact-modifying edit, include the verification result
+as a git trailer in the commit body so future readers (and the next
+Codex round) can see the premise was checked, and so `git
+interpret-trailers` can parse it:
+
+```
+fix(scope): <change>
+
+Premise-Verified: <command + output excerpt or source link>
+```
+
+Trailer key uses the canonical hyphen-and-capitalized form
+(`Premise-Verified:`) — not free-form text — so trailer-aware tooling
+can pick it up. Structural and stylistic edits do not need this trailer.
+
 ## Error Handling
 
 | Situation | Action |
@@ -155,6 +277,8 @@ and tell the user: "Codex review started in the background. Check `/codex:status
 | User selects "취소" | Abort silently with one-line message |
 | `installed_plugins.json` missing or codex entry absent | Offer alternatives via `AskUserQuestion` (Step 4a) |
 | Resolved `codex-companion.mjs` path does not exist | Offer alternatives via `AskUserQuestion` (Step 4a) |
+| Premise check (Step 5b) disproves a finding | Skip the edit; reply to Codex with the falsifying evidence |
+| Flip detected (Step 5c) | Halt; surface both rounds to the user; do not apply either side without explicit direction |
 
 ## Example Flow
 
@@ -177,9 +301,28 @@ user selects: 1
 
 [Step 4] cd /Users/dev/project-wt/windmill-hub-1539
          → node {install_path}/scripts/codex-companion.mjs review
+
+[Step 5 — Round 1] Codex returned 3 findings:
+  - F1: rename `query()` → `run_query()`           [structural — apply directly]
+  - F2: change WHERE col_a = 1 → col_b = 1         [fact-modifying — verify column exists]
+  - F3: drop the `--state all` flag                [fact-modifying — verify CLI accepts the value]
+  Verify F2: DESCRIBE my_table → col_b not present
+    → ledger: rejected: query.sql:L42 | round=1 | col_a → col_b | reason: col_b absent in DESCRIBE
+  Verify F3: gh search issues --help → --state accepts only {open, closed}
+    → apply; ledger: applied: cli.sh:L10 | round=1 | "--state all" → "--state open"
+  Commit F3 with trailer:  Premise-Verified: gh search issues --help (excerpt)
+
+[Step 5 — Round 2] Codex now re-suggests changing WHERE col_a = 1 → col_b = 1
+  Scan ledger: rejected entry on query.sql:L42 with same A → B transition exists
+  → flip fires (re-proposal of rejected); halt and surface to user
+
+[Step 5 — Round 2 alt] Codex now suggests "--state open" → "--state all"
+  Scan ledger: applied entry on cli.sh:L10 reverses → flip fires (applied flip); halt
 ```
 
 ## Limitations
 
 - Does not modify `/codex:review` itself — users who call it directly still get the old behaviour
 - Subshell `cd` does not persist after skill execution — cwd is not mutated in the parent session
+- The Step 5 ledger is per-session only — flips that span session boundaries are not detected
+- Premise classification (5a) is heuristic; when in doubt, treat the finding as fact-modifying
