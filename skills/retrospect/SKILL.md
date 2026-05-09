@@ -222,7 +222,7 @@ You MUST complete each stage before proceeding to the next.
 
 ### Stage 2.5: Action Distribution Audit
 
-After Stage 2 completes (all findings have `category[]` labels and provisional `Proposed Actions`) and BEFORE Stage 3 begins, run the two gate checks below. Each finding has its own per-finding gate counter, reset at Stage 2.5 entry.
+After Stage 2 completes (all findings have `category[]` labels and provisional `Proposed Actions`) and BEFORE Stage 3 begins, run the three gate checks below. Each finding has its own per-finding gate counter, reset at Stage 2.5 entry.
 
 **Gate-1 (Categorical)** — for each finding whose `category[]` intersects {`tool`, `workflow`, `spec-gap`}, verify `Proposed Actions` ≠ `memory` (single, not compound).
 
@@ -232,11 +232,44 @@ If `memory` is the *only* action for such a finding → return that finding to S
 
 If absent or incomplete → return that finding to Stage 2 step 8 (re-evaluate with explicit per-action rationale enforcement).
 
-**Per-finding loop cap** — maximum 2 re-entries per finding. On the 3rd violation for the same finding, surface to user with explicit prompt:
+**Gate-3 (Evidence Robustness)** — for each finding with `Proposed Actions` count = 2 (compound), verify three sub-conditions. Gate-1 and Gate-2 check whether the *form* of action assignment is correct; Gate-3 checks whether the *evidence* underneath each action is robust enough to justify it. Without this gate, category-default form-filling can produce a second action whose only purpose is to ask a question the first action already answered — pure structural redundancy that costs an upstream issue or a CLAUDE.md draft.
 
-> "Finding #N은 진짜 memory-only가 적합한가요? Gate-1/Gate-2가 통과되지 않습니다. rationale을 직접 입력해주시면 우회합니다."
+Sub-conditions (all three must hold):
 
-User-supplied rationale is logged but bypasses the gate for that single finding.
+(a) **Per-action evidence pointer** — each of the 2 actions cites ≥1 explicit friction-event observation that supports it. Citations live as a sub-bullet inside the Rationale cell or as an inline `(observed: <event-id or one-line>)` reference. Form-filling actions with no concrete observation behind them are not justifiable on their own.
+
+(b) **Sibling decision-coupling check** — if action B's outcome decides a question that action A's existence already presupposes (i.e., A applied option X, and B's purpose is to ask which of {X, Y} is correct), the actions are decision-coupled. The two actions cannot both be justified at the same time — applying A while B is still "asking" produces a contradiction. Resolution: keep the stronger-evidence action; demote the weaker to a **trigger condition** line in Stage 3 ("file new issue if observation Z appears"). Do not execute both.
+
+(c) **Single-observation downgrade** — for each action backed by exactly 1 observation AND `repeat=false` (Stage 2 step 7 result), downgrade one tier per this table:
+
+| Original action (in compound row) | Downgraded to | Rationale |
+|-----------------------------------|---------------|-----------|
+| `upstream_feedback` | `memory` | Single observation against an external party doesn't justify upstream-write cost; capture locally first |
+| `issue` | `memory` | Single observation without repeat doesn't justify systemic-fix tracking; capture pattern first |
+| `hook_code` | `skill_idea` | Single observation doesn't justify enforcement-code investment; sketch as a skill idea first |
+| `claude_md_draft` (single-observation in this row) | `memory` | Single-observation rule additions risk over-fitting; capture as memory first, escalate if the pattern recurs. Note: a *compound* `memory, claude_md_draft` row where `claude_md_draft` is the action being evaluated still downgrades to `memory`, collapsing the row to single `memory`. |
+| `skill_idea` | `memory` | Single observation doesn't justify a skill artifact; capture pattern first |
+| `memory` | (no downgrade) | Already the lowest tier |
+
+If sub-condition (a) fails → return finding to Stage 2 step 8 with prompt to add observation citations.
+If sub-condition (b) fails → keep the stronger-evidence action, mark the weaker for trigger-condition emission in Stage 3, log the coupling reason in Actions Executed report.
+If sub-condition (c) fires → apply the downgrade; if the resulting action set is now memory-only on a `tool`/`workflow`/`spec-gap`-labeled finding, this re-triggers Gate-1 (per-finding loop cap applies). Cap accounting: the downgrade itself does NOT consume a re-entry — only the resulting Gate-1 re-evaluation does. A single Gate-3 (c) → Gate-1 cascade counts as one re-entry, not two.
+
+**Out of scope** (Gate-3 does NOT fire):
+- Findings with `Proposed Actions` count = 1 (single-action — no sibling to compare against; this includes behavioral-only defaults and `note only` rows)
+- Findings where the two actions affect **different artifacts on different surfaces** (e.g., `claude_md_draft` for the project's CLAUDE.md + `skill_idea` for a tool-side enhancement) — these are not decision-coupled because they cannot presuppose each other's outcome
+- `repeat=true` findings (the repeat history itself is multi-observation evidence; Gate-3 (c) does not downgrade)
+
+**Decision-coupling examples for sub-condition (b):**
+
+- **Coupled** (Gate-3 (b) fires): `claude_md_draft` rewrites a rule to assert "behavior X is intentional" + `upstream_feedback` opens an upstream issue asking "is X intentional or oversight?". The first action presupposes the answer the second action exists to ask. Keep the stronger-evidence action; demote the other to a trigger-condition line.
+- **Not coupled** (Gate-3 (b) skips): `claude_md_draft` adds a project-side rule + `skill_idea` sketches a tool-side enhancement on a different surface. Both actions can be executed simultaneously without contradiction; their outcomes are independent.
+
+**Per-finding loop cap** — maximum 2 re-entries per finding (across all three gates combined; not per-gate). Worked example of a worst-case path that hits the cap: Gate-3 (a) fail → step 8 re-derive (re-entry 1) → Gate-3 (c) downgrades action → Gate-1 fail → step 8 re-derive (re-entry 2) → cap reached, surface to user. On the 3rd violation for the same finding, surface to user with explicit prompt:
+
+> "Finding #N의 Gate-1/Gate-2/Gate-3 중 하나가 통과되지 않습니다. 어떻게 진행할까요? [a] rationale/observation을 직접 입력해 우회 / [b] action을 직접 지정 / [c] 이 finding은 note only로 강등."
+
+User-supplied resolution is logged but bypasses the gate(s) for that single finding.
 
 **Behavioral-only safeguard** — if ALL findings ended up labeled `behavioral` only (no tool/workflow/spec-gap anywhere), run a final keyword sanity check on the original pre-scan signal text. If any signal contains `gh ` / `kubectl` / `MCP` / `--state` / `permission denied` / `timeout` / `--help` / `flag`, surface to user:
 
@@ -244,7 +277,7 @@ User-supplied rationale is logged but bypasses the gate for that single finding.
 
 User confirmation required to proceed; if user confirms, log the keyword set found.
 
-**Output (on pass)** — Stage 2.5 emits the distribution card per the Output Schema Contract defined in Stage 3, plus per-finding Gate-1 and Gate-2 verdicts:
+**Output (on pass)** — Stage 2.5 emits the distribution card per the Output Schema Contract defined in Stage 3, plus per-finding Gate-1, Gate-2, and Gate-3 verdicts:
 
 ```
 <!-- retrospect:distribution begin -->
@@ -256,10 +289,16 @@ User confirmation required to proceed; if user confirms, log the keyword set fou
 - upstream_feedback: {n}
 - gate_1_verdict: {PASS|FAIL|NA}
 - gate_2_verdict: {PASS|FAIL|NA}
+- gate_3_verdict: {PASS|FAIL|NA}
 <!-- retrospect:distribution end -->
 ```
 
-`NA` = no findings of the relevant type (e.g., `gate_1_verdict: NA` when zero `tool`/`workflow`/`spec-gap` labeled findings exist).
+`NA` = no findings of the relevant type. Per-gate `NA` semantics:
+- `gate_1_verdict: NA` — zero `tool`/`workflow`/`spec-gap` labeled findings exist
+- `gate_2_verdict: NA` — zero memory-only findings exist
+- `gate_3_verdict: NA` — zero findings have `Proposed Actions` count = 2 (every finding is single-action)
+
+The Stop hook `retrospect-mix-check.sh` currently parses `gate_1_verdict` and `gate_2_verdict`; `gate_3_verdict` is emitted for visibility and audit-trail purposes (the hook silently ignores unknown keys). Gate-3 is enforced procedurally inside Stage 2.5; structural Stop-hook enforcement is reserved for a follow-up tightening if procedural compliance proves insufficient.
 
 This card and verdict block become Stage 3's input header.
 
@@ -273,7 +312,8 @@ Stage 3 output MUST emit, in this order:
 2. **Distribution card** between HTML comment fences. Action keys are canonical snake_case enum; verdict values are `PASS` / `FAIL` / `NA`:
 
    ```markdown
-   <!-- AUTHORITATIVE_SCHEMA — Stop hook depends on this. Co-update hooks/retrospect-mix-check.sh + tests/test_retrospect_mix_check.sh + tests/fixtures/retrospect-synth-*.expected.json on any change to this fence or the action key set. -->
+   <!-- AUTHORITATIVE_SCHEMA — Stop hook depends on this. Co-update hooks/retrospect-mix-check.sh + tests/test_retrospect_mix_check.sh + tests/fixtures/retrospect-synth-*.expected.json on any change to: (1) the fence markers themselves, (2) the action key set (memory/issue/claude_md_draft/skill_idea/hook_code/upstream_feedback), or (3) gate_1_verdict / gate_2_verdict keys.
+        Gate-3 carve-out: gate_3_verdict is informational-only and INTENTIONALLY EXCLUDED from this co-update contract. The hook's awk parser keys on gate_1_verdict/gate_2_verdict literals only and silently ignores all other lines (regression-tested by tests T8–T17 + the 4 fixture files which still pass without gate_3_verdict). Adding/removing/renaming gate_3_verdict alone does NOT require hook or test changes. -->
    <!-- retrospect:distribution begin -->
    - memory: 1
    - issue: 0
@@ -283,6 +323,7 @@ Stage 3 output MUST emit, in this order:
    - upstream_feedback: 0
    - gate_1_verdict: PASS
    - gate_2_verdict: PASS
+   - gate_3_verdict: PASS
    <!-- retrospect:distribution end -->
    ```
 
@@ -318,12 +359,25 @@ The Stop hook parses the distribution-card fence (deterministic) and the table (
 - upstream_feedback: {n}
 - gate_1_verdict: {PASS|FAIL|NA}
 - gate_2_verdict: {PASS|FAIL|NA}
+- gate_3_verdict: {PASS|FAIL|NA}
 <!-- retrospect:distribution end -->
 
 | # | Category | Tool Layer | Pattern | Root Cause | Rule / Gap | Repeat? | Proposed Actions (1~2) | Rationale | Priority |
 |---|----------|------------|---------|------------|------------|---------|------------------------|-----------|----------|
 | 1 | {behavioral|tool|workflow|spec-gap, ...} | {mcp|cli|builtin|skill|—} | {pattern} | {root_cause} | {rule_ref or "gap"} | {Yes(Nx)/No} | {action1[, action2]} | {rationale: 5 `not <action>:` lines for memory-only, or one-line for compound/non-memory} | HIGH/MED/LOW |
 ...
+
+### Trigger Conditions (Gate-3 (b) demotions)
+
+(Non-machine-parsed; emitted for human review only — not parsed by the Stop hook.)
+
+If Stage 2.5 Gate-3 detected sibling decision-coupling and demoted the weaker action,
+emit one bullet per demoted action below. Format: literal `^- Finding #N: file <action>
+when <observation predicate>$`.
+
+- Finding #N: file `<demoted_action>` when `<observation predicate>` (originally proposed alongside `<kept_action>`; demoted because <coupling reason>)
+
+If no Gate-3 (b) demotions occurred, omit this section entirely (do not emit "None.").
 
 No patterns found: emit the distribution card with all counts = 0 and verdicts = NA, plus literal "This session followed all CLAUDE.md rules. ✅"
 ```
@@ -568,10 +622,12 @@ If you catch yourself:
 - **Skipping step 4b entirely** ("no tool issues this session") — step 4b is mandatory. If no tool friction is found, the distribution card MUST emit `upstream_feedback: 0` and the report MUST state "No tool/feature friction detected. ✅" explicitly
 - **Pre-scan에서 friction event에 `category[]` 라벨링을 누락한 채 Stage 2 step 3 이상 진행** — Layer E 강제. 누락은 Stage 2 진입 전 차단되어야 한다.
 - **Memory-only finding의 `Rationale`이 5줄 `not <action>: <reason>` 형식이 아니거나 5 action type 미만 커버** — Gate-2 위반. 일반 한 줄 진술은 memory-only 근거로 부적격.
-- **Stage 2.5 분포 감사를 명시적으로 건너뛰고 Stage 3로 직행** — distribution card와 Gate-1/Gate-2 verdict 출력은 Stage 3 입력의 mandatory 전제.
+- **Stage 2.5 분포 감사를 명시적으로 건너뛰고 Stage 3로 직행** — distribution card와 Gate-1/Gate-2/Gate-3 verdict 출력은 Stage 3 입력의 mandatory 전제.
 - **`tool` 라벨 finding의 `Tool Layer` 컬럼이 `—`로 비어 있음** — Layer E ↔ step 4b composition matrix 위반. tool 카테고리는 4b layer 중 하나(mcp/cli/builtin/skill)를 반드시 가져야 한다.
 - **`upstream_feedback` 행에 `backing_repo: <owner/repo>` 선언이 없음** — Stage 2 step 8 위반. 선언은 Stage 4 Action 4 step 0의 라우팅 결정 입력이며, 누락 시 Stage 4가 abort 한다.
 - **Stage 4 Action 4에서 step 0 (declared vs re-resolved 비교)을 건너뛰고 바로 `gh issue create` 실행** — 이슈가 잘못된 레포로 라우팅되는 정확한 실패 경로. 선언과 재계산 값을 모두 기록하지 않은 채 진행하면 retrospect 자체가 검증 불가.
+- **`Proposed Actions` count = 2 인데 두 action 이 decision-coupled (한 쪽이 다른 쪽이 묻는 질문을 이미 결정)** — Gate-3 (b) 위반. 둘 다 실행하면 상호 모순 상태가 만들어지며, `upstream_feedback` 측이 외부 레포에 빈 질문을 남기는 노이즈가 발생한다. 강한 evidence 쪽을 유지하고 약한 쪽은 trigger condition으로 강등.
+- **2-action finding 의 각 action 이 ≥1 friction-event observation 을 인용하지 않음** — Gate-3 (a) 위반. Category-default form-filling만으로 만들어진 action 은 evidence-based delivery 원칙과 충돌하며, 첫 번째 action 이 이미 수행한 결정을 두 번째가 반복-질문하는 redundancy 의 전형적 신호.
 
 **ALL of these mean: STOP. Return to Stage 2.**
 
@@ -581,7 +637,7 @@ If you catch yourself:
 |-------|-------------|-----------------|
 | **1. Load** | Read CLAUDE.md, form scan questions | Rule categories identified |
 | **2. Analyze** | Scan conversation, map to rules, find root cause | Root cause (not symptom) for each pattern; every event has `category[]` |
-| **2.5 Audit** | Run Gate-1 (categorical) + Gate-2 (5-line rationale schema) | Both gates PASS or per-finding cap reached and surfaced to user |
+| **2.5 Audit** | Run Gate-1 (categorical) + Gate-2 (5-line rationale schema) + Gate-3 (evidence robustness for 2-action findings) | All applicable gates PASS or per-finding cap reached and surfaced to user |
 | **3. Report** | Present unified table + distribution card, collect approval per item | User approved at least 1 item (or confirmed 0 findings) |
 | **4. Execute** | Run approved actions, verify artifacts | Completion report with links/paths + verification results |
 
@@ -598,6 +654,8 @@ If you catch yourself:
 | Stage 2 (analyze) | Pre-scan event missing `category[]` label | Block Stage 2 progression to step 3; instruct LLM to backfill labels per Layer E enumerated values |
 | Stage 2.5 (audit) | Gate-1 violation persists after 2 per-finding re-entries | Surface to user with override prompt; log user-supplied rationale |
 | Stage 2.5 (audit) | Gate-2 violation persists after 2 per-finding re-entries | Surface to user with override prompt; log user-supplied rationale |
+| Stage 2.5 (audit) | Gate-3 violation persists after 2 per-finding re-entries | Surface to user with 3-way override prompt (`[a] rationale 직접 입력 / [b] action 직접 지정 / [c] note only 강등`); log selection |
+| Stage 2.5 (audit) | Gate-3 (c) downgrade collapses action set to memory-only on a tool/workflow/spec-gap finding | Re-trigger Gate-1; counts toward the per-finding loop cap of 2 |
 | Stage 2.5 (audit) | Behavioral-only safeguard triggered (tool keywords detected in pre-scan signals) | Surface to user; require explicit confirmation before proceeding to Stage 3 |
 | Stage 3 (report) | User rejects all findings | Capture the rejection itself as a feedback signal for future retrospects |
 | Stage 4 (execute) | MEMORY.md write fails | Report the path error; never silently drop the feedback |
