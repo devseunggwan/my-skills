@@ -511,7 +511,7 @@ For each approved action:
    | MEMORY.md feedback (new) | File exists + MEMORY.md index updated |
    | MEMORY.md feedback (merged) | Existing file updated (diff shown) + MEMORY.md index description updated if needed |
    | GitHub issue | `gh issue view {url}` returns valid data |
-   | Upstream feedback | `gh issue view {url}` returns valid data + correct `tool-friction:{layer}` label attached + URL repo matches `verified_backing_repo` from step 0 |
+   | Upstream feedback | `gh issue view {url}` returns valid data + URL repo matches `verified_backing_repo` from step 0 + label convention is correct for the verified repo (`tool-friction:{layer}` ONLY when verified repo is the praxis distribution; otherwise the repo's own convention label per Action 4's label rule) |
    | Hook code | Script file exists + settings.json registration confirmed (dry-run varies by hook type — no generic check) |
    | CLAUDE.md draft | Diff shown to user + explicit approval received |
    | Skill idea note | File exists in `.omc/plans/` |
@@ -605,7 +605,7 @@ If you catch yourself:
 | Stage 4 (execute) | Upstream feedback issue creation fails | Fall back to saving a note in `.omc/plans/tool-friction-{slug}.md` with intended `tool-friction:{layer}` label and issue draft |
 | Stage 4 (execute) | `tool-friction:*` label doesn't exist (and the verified backing repo is the praxis distribution) | Auto-create with `gh label create "tool-friction:{layer}" --repo <verified-praxis-repo>` and retry |
 | Stage 4 (execute) | Action 4 step 0 — `backing_repo` declaration missing from finding row | ABORT this action; return finding to Stage 2 step 8 with prompt to emit declaration; do NOT fall back to project repo |
-| Stage 4 (execute) | Action 4 step 0 — declared vs re-resolved `backing_repo` divergence | ABORT this action; surface 3-way `AskUserQuestion` (declared / re-resolved / note-only); do NOT auto-pick |
+| Stage 4 (execute) | Action 4 step 0 — declared vs re-resolved `backing_repo` divergence | ABORT this action; surface `AskUserQuestion` per step 0.4 prompt variants (3-way `[a] declared / [b] re-resolved / [c] skip-upstream_feedback-action`, or 2-way for AMBIGUOUS cases); do NOT auto-pick |
 
 ## Integration
 
