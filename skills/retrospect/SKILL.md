@@ -212,6 +212,14 @@ You MUST complete each stage before proceeding to the next.
 
    **Escape hatch**: If `repeat=true` AND `resolved=true` (existing issue/hook resolution already exists for this feedback), `note only` is allowed. In this case, include a sentence in the report confirming that the existing resolution is still effective.
 
+   ⚠️ **MUST — backing_repo declaration for upstream_feedback rows**: When `Proposed Actions` contains `upstream_feedback` (single or compound), the row's `Rationale` cell MUST include a `backing_repo: <owner/repo>` line resolved per Stage 4 Action 4's resolution table. The declaration is **load-bearing** — Stage 4 re-reads it as the routing decision and aborts on divergence.
+
+   - Resolution source-of-truth (in priority order): plugin manifest `repository` field → MCP server git remote → dotfiles backing repo via symlink chain → project CLAUDE.md feature-to-repo mapping.
+   - Format: literal line `backing_repo: <owner>/<repo>` embedded in the Rationale cell via `<br>` separators. Example: `Rationale: tool defect in praxis distribution<br>backing_repo: devseunggwan/praxis`.
+   - Unresolvable layer (`builtin`, or no upstream reachable per the Action 4 resolution table's `builtin` row): **remove `upstream_feedback` from the row's `Proposed Actions` set entirely**. If the row had compound actions (e.g., `memory, upstream_feedback`), retain the remaining ones (e.g., keep `memory` alone). If `upstream_feedback` was the sole action, re-derive the action via Stage 2 step 8's category-default rows (typically `skill_idea` for `tool` category, or `memory` if behavioral co-label exists). The escape-hatch state `note only` (from `repeat=true AND resolved=true`) is a separate construct and is NOT used here. Do NOT emit a placeholder `backing_repo`.
+   - Ambiguous layer (resolution table's `Other / ambiguous` row): keep `upstream_feedback` but surface to user immediately at Stage 2; the user-supplied repo becomes the declared `backing_repo`. Stage 4 step 0 then re-resolves and may still divergence-prompt if the live re-resolution differs.
+   - Hook-parsing safety: this is not a memory-only row, so the Stage 2.5 Gate-2 5-line schema does not apply. The `backing_repo:` line lives alongside the human rationale text without conflicting with the Gate-2 regex.
+
 ### Stage 2.5: Action Distribution Audit
 
 After Stage 2 completes (all findings have `category[]` labels and provisional `Proposed Actions`) and BEFORE Stage 3 begins, run the two gate checks below. Each finding has its own per-finding gate counter, reset at Stage 2.5 entry.
@@ -288,7 +296,7 @@ Stage 3 output MUST emit, in this order:
    - `Category`: comma-separated subset of `behavioral`, `tool`, `workflow`, `spec-gap` (≥1, see Stage 2 pre-scan categorization)
    - `Tool Layer`: one of `mcp`, `cli`, `builtin`, `skill`, or `—` (mandatory non-`—` when `tool` ∈ Category, optional `skill` for `workflow` / `spec-gap`, `—` for `behavioral`)
    - `Proposed Actions (1~2)`: comma-separated subset of `memory`, `issue`, `claude_md_draft`, `skill_idea`, `hook_code`, `upstream_feedback`
-   - `Rationale`: free-form one-line for compound or non-memory rows; for **memory-only** rows (single `memory`, not compound), the cell MUST contain exactly 5 lines matching `^not (issue|claude_md_draft|skill_idea|hook_code|upstream_feedback): .+$`, one line per non-memory action type. Generic single-sentence rationales are NOT acceptable for memory-only findings.
+   - `Rationale`: free-form one-line for compound or non-memory rows; for **memory-only** rows (single `memory`, not compound), the cell MUST contain exactly 5 lines matching `^not (issue|claude_md_draft|skill_idea|hook_code|upstream_feedback): .+$`, one line per non-memory action type. Generic single-sentence rationales are NOT acceptable for memory-only findings. **For rows whose actions include `upstream_feedback`** (single or compound), the cell MUST also contain a literal line `backing_repo: <owner>/<repo>` (embedded via `<br>` for single-line markdown form) — Stage 4 Action 4 step 0 reads this as the routing decision. **Compound case `memory, upstream_feedback`**: the row is NOT memory-only (contains a non-memory action), so the 5-line schema does NOT apply — instead use free-form prose for the human rationale + the `backing_repo:` line. Compound combinations are *additive*: each action-specific Rationale convention applies independently to the row, joined with `<br>`.
 
 The Stop hook parses the distribution-card fence (deterministic) and the table (anchored on these literal column headers). Drift in this contract requires synchronized edits to `hooks/retrospect-mix-check.sh`, `tests/test_retrospect_mix_check.sh`, and `tests/fixtures/retrospect-synth-*.expected.json`.
 
@@ -417,7 +425,52 @@ For each approved action:
 
 4. **Upstream feedback** → Resolve the tool's **backing repo first** (do NOT hardcode any specific repo), then create a labeled issue there. Hardcoding misroutes plugin defects, custom MCP defects, dotfiles defects across user environments.
 
-   **Backing repo resolution (MUST do BEFORE issue creation):**
+   ### Step 0 — Backing-repo verification gate (MUST run before any mutation)
+
+   This gate is the first procedure step for every `upstream_feedback` row, executed **before** any of the resolution-table lookups below. Skipping it means the most salient file path in the executor's local context (often the working project repo) wins the routing decision — which is the exact failure mode this gate prevents.
+
+   1. **Read the declaration.** Parse `backing_repo: <owner/repo>` from the finding's Rationale cell (Stage 2 step 8 makes this MANDATORY for upstream_feedback rows; Stage 3 surfaces it). If the declaration is absent → ABORT this action and return the finding to Stage 2 step 8 with prompt: `"Finding #N upstream_feedback row missing backing_repo declaration — re-run Stage 2 step 8."`
+
+   2. **Re-resolve from source-of-truth.** Independently of the declaration, re-resolve the backing repo using the resolution table below. Do NOT use the declared value as the lookup input — use the tool/layer signal from Stage 2 step 4b to derive the repo from scratch. Capture the re-resolved value as `live_backing_repo`. If the resolution table's `Other / ambiguous` row matches the layer (no concrete repo derivable), treat `live_backing_repo = AMBIGUOUS` and skip to step 0.4 with a 2-way prompt instead of 3-way.
+
+   3. **Compare.** If `live_backing_repo == declared backing_repo` → proceed to the rest of Action 4. Normalization rules for equality (apply both sides):
+      - Strip leading/trailing whitespace
+      - Strip trailing `.git`
+      - Treat all of these as equivalent forms of the same repo: `owner/repo`, `https://github.com/owner/repo`, `git@github.com:owner/repo`, `ssh://git@github.com/owner/repo`
+      - Case-insensitive on `owner` and `repo` (GitHub treats them case-insensitively for routing)
+
+   4. **Divergence / ambiguity handling.** If `live_backing_repo != declared backing_repo` (after normalization) → ABORT and surface to user via `AskUserQuestion`. Two prompt variants:
+
+      **(i) Both sides concrete repos — 3-way prompt:**
+      ```
+      ⚠ Backing-repo divergence on Finding #N:
+         Stage 2/3 declared:    {declared}
+         Stage 4 re-resolved:   {live}
+
+      어느 쪽이 정확합니까?
+      [a] declared ({declared}) 으로 진행
+      [b] re-resolved ({live}) 으로 진행 (Stage 2 declaration 정정)
+      [c] 이 finding 은 skip — upstream_feedback 액션 제거
+      ```
+
+      **(ii) Re-resolution returned `AMBIGUOUS` (declared is concrete) — 2-way prompt:**
+      ```
+      ⚠ Backing-repo re-resolution ambiguous on Finding #N:
+         Stage 2/3 declared:    {declared}
+         Stage 4 re-resolved:   AMBIGUOUS (resolution table's `Other / ambiguous` row)
+
+      어느 쪽으로 진행할까요?
+      [a] declared ({declared}) 으로 진행 (사용자가 Stage 2에서 결정한 값을 신뢰)
+      [b] 이 finding 은 skip — upstream_feedback 액션 제거
+      ```
+
+      **(iii) Declared was `AMBIGUOUS` but re-resolution found a concrete value — 2-way prompt:** mirror of (ii) with `[a]` = use re-resolved, `[b]` = skip.
+
+      Do NOT proceed without an explicit pick. `[b]` (in variant i) requires updating the declared `backing_repo` line — record the corrected value in the Actions Executed report's verification trail rather than re-emitting the entire Stage 3 report (the report is append-only post-Stage-3; corrections live in step 0.5's trail). The skip path removes `upstream_feedback` from the row's action set and logs the divergence reason in the Actions Executed section.
+
+   5. **Verification trail.** Record both values + the chosen path in the Actions Executed report (e.g., `Finding #N: backing_repo verified (declared=live=devseunggwan/praxis)` or `Finding #N: divergence resolved via [b] — switched declared <X> → re-resolved <Y>`). This trail is the defense against silent misrouting in retrospective analysis.
+
+   ### Backing repo resolution (used by step 0.2 and as reference)
 
    | Tool name / layer pattern | Backing repo resolution |
    |---|---|
@@ -431,13 +484,13 @@ For each approved action:
 
    If the active project's CLAUDE.md provides a feature-to-repo mapping, consult it before deciding a repo.
 
-   **Then create the issue (using the resolved backing repo):**
+   **Then create the issue (using the verified backing_repo from step 0):**
    - Title: `{type}({tool_layer}): {friction description}` (Conventional Commits format)
-   - Label: `tool-friction:{layer}` is praxis's own convention. Apply it ONLY when the resolved backing repo is the praxis distribution itself. For any other backing repo, use that repo's existing label conventions (e.g., `bug`, `enhancement`); do NOT auto-create praxis-style labels in unrelated repos.
-   - If `tool-friction:*` is needed and missing in the praxis repo: `gh label create "tool-friction:{layer}" --repo <resolved-praxis-repo>`
+   - Label: `tool-friction:{layer}` is praxis's own convention. Apply it ONLY when the verified backing repo is the praxis distribution itself. For any other backing repo, use that repo's existing label conventions (e.g., `bug`, `enhancement`); do NOT auto-create praxis-style labels in unrelated repos.
+   - If `tool-friction:*` is needed and missing in the praxis repo: `gh label create "tool-friction:{layer}" --repo <verified-praxis-repo>`
    - Body: include evidence, expected behavior, proposed fix direction from step 4b finding
-   - Command: `gh issue create --repo <resolved_backing_repo> --title "$TITLE" --label "$LABEL" --body "$BODY"` — substitute the resolved repo, never hardcode
-   - **Verification (mandatory):** issue URL is returned, `gh issue view {url}` succeeds, AND the URL's repo matches the resolved backing repo (catches misrouting)
+   - Command: `gh issue create --repo <verified_backing_repo> --title "$TITLE" --label "$LABEL" --body "$BODY"` — substitute the verified repo, never hardcode
+   - **Verification (mandatory):** issue URL is returned, `gh issue view {url}` succeeds, AND the URL's repo matches the verified backing repo (catches misrouting)
 
 5. **Skill idea note** → Write to `{current_project}/.omc/plans/retrospect-skill-idea-{slug}.md`
    - `{current_project}` = `$CLAUDE_PROJECT_DIR` or `git rev-parse --show-toplevel`
@@ -458,7 +511,7 @@ For each approved action:
    | MEMORY.md feedback (new) | File exists + MEMORY.md index updated |
    | MEMORY.md feedback (merged) | Existing file updated (diff shown) + MEMORY.md index description updated if needed |
    | GitHub issue | `gh issue view {url}` returns valid data |
-   | Upstream feedback | `gh issue view {url}` returns valid data + correct `tool-friction:{layer}` label attached |
+   | Upstream feedback | `gh issue view {url}` returns valid data + URL repo matches `verified_backing_repo` from step 0 + label convention is correct for the verified repo (`tool-friction:{layer}` ONLY when verified repo is the praxis distribution; otherwise the repo's own convention label per Action 4's label rule) |
    | Hook code | Script file exists + settings.json registration confirmed (dry-run varies by hook type — no generic check) |
    | CLAUDE.md draft | Diff shown to user + explicit approval received |
    | Skill idea note | File exists in `.omc/plans/` |
@@ -474,6 +527,9 @@ For each approved action:
 |---|--------|--------|
 | 1 | MEMORY.md feedback added | ✅ {file_path} |
 | 2 | GitHub issue created | ✅ {url} |
+| 3 | Upstream feedback (Finding #N) | ✅ {url} (backing_repo verified: declared=live={owner/repo}) |
+| 4 | Upstream feedback (Finding #M) | ⚠ aborted at step 0 — declared {X} ≠ re-resolved {Y}; user picked [b], re-issued at {url} |
+| 5 | Upstream feedback (Finding #P) | ⊘ skipped at step 0 — divergence; user picked [c], action removed; reason: declared {X} not reachable, re-resolved {Y} unfamiliar to user |
 ...
 
 Session learnings captured. Next session will benefit from these improvements.
@@ -514,6 +570,8 @@ If you catch yourself:
 - **Memory-only finding의 `Rationale`이 5줄 `not <action>: <reason>` 형식이 아니거나 5 action type 미만 커버** — Gate-2 위반. 일반 한 줄 진술은 memory-only 근거로 부적격.
 - **Stage 2.5 분포 감사를 명시적으로 건너뛰고 Stage 3로 직행** — distribution card와 Gate-1/Gate-2 verdict 출력은 Stage 3 입력의 mandatory 전제.
 - **`tool` 라벨 finding의 `Tool Layer` 컬럼이 `—`로 비어 있음** — Layer E ↔ step 4b composition matrix 위반. tool 카테고리는 4b layer 중 하나(mcp/cli/builtin/skill)를 반드시 가져야 한다.
+- **`upstream_feedback` 행에 `backing_repo: <owner/repo>` 선언이 없음** — Stage 2 step 8 위반. 선언은 Stage 4 Action 4 step 0의 라우팅 결정 입력이며, 누락 시 Stage 4가 abort 한다.
+- **Stage 4 Action 4에서 step 0 (declared vs re-resolved 비교)을 건너뛰고 바로 `gh issue create` 실행** — 이슈가 잘못된 레포로 라우팅되는 정확한 실패 경로. 선언과 재계산 값을 모두 기록하지 않은 채 진행하면 retrospect 자체가 검증 불가.
 
 **ALL of these mean: STOP. Return to Stage 2.**
 
@@ -545,7 +603,9 @@ If you catch yourself:
 | Stage 4 (execute) | MEMORY.md write fails | Report the path error; never silently drop the feedback |
 | Stage 4 (execute) | GitHub issue creation fails | Fall back to saving a note in `.omc/plans/` for later manual creation |
 | Stage 4 (execute) | Upstream feedback issue creation fails | Fall back to saving a note in `.omc/plans/tool-friction-{slug}.md` with intended `tool-friction:{layer}` label and issue draft |
-| Stage 4 (execute) | `tool-friction:*` label doesn't exist (and the resolved backing repo is the praxis distribution) | Auto-create with `gh label create "tool-friction:{layer}" --repo <resolved-praxis-repo>` and retry |
+| Stage 4 (execute) | `tool-friction:*` label doesn't exist (and the verified backing repo is the praxis distribution) | Auto-create with `gh label create "tool-friction:{layer}" --repo <verified-praxis-repo>` and retry |
+| Stage 4 (execute) | Action 4 step 0 — `backing_repo` declaration missing from finding row | ABORT this action; return finding to Stage 2 step 8 with prompt to emit declaration; do NOT fall back to project repo |
+| Stage 4 (execute) | Action 4 step 0 — declared vs re-resolved `backing_repo` divergence | ABORT this action; surface `AskUserQuestion` per step 0.4 prompt variants (3-way `[a] declared / [b] re-resolved / [c] skip-upstream_feedback-action`, or 2-way for AMBIGUOUS cases); do NOT auto-pick |
 
 ## Integration
 
