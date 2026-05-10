@@ -255,10 +255,15 @@ If sub-condition (a) fails → return finding to Stage 2 step 8 with prompt to a
 If sub-condition (b) fails → keep the stronger-evidence action, mark the weaker for trigger-condition emission in Stage 3, log the coupling reason in Actions Executed report.
 If sub-condition (c) fires → apply the downgrade; if the resulting action set is now memory-only on a `tool`/`workflow`/`spec-gap`-labeled finding, this re-triggers Gate-1 (per-finding loop cap applies). Cap accounting: the downgrade itself does NOT consume a re-entry — only the resulting Gate-1 re-evaluation does. A single Gate-3 (c) → Gate-1 cascade counts as one re-entry, not two.
 
-**Out of scope** (Gate-3 does NOT fire):
-- Findings with `Proposed Actions` count = 1 (single-action — no sibling to compare against; this includes behavioral-only defaults and `note only` rows)
-- Findings where the two actions affect **different artifacts on different surfaces** (e.g., `claude_md_draft` for the project's CLAUDE.md + `skill_idea` for a tool-side enhancement) — these are not decision-coupled because they cannot presuppose each other's outcome
-- `repeat=true` findings (the repeat history itself is multi-observation evidence; Gate-3 (c) does not downgrade)
+**Out of scope** — each sub-condition (a) / (b) / (c) has its own skip rule. A single condition does NOT necessarily disable the whole gate; sub-conditions are evaluated independently per finding:
+
+| Condition on the finding | (a) per-action evidence | (b) decision-coupling | (c) single-observation downgrade |
+|--------------------------|:-----------------------:|:---------------------:|:--------------------------------:|
+| `Proposed Actions` count = 1 (single-action; includes behavioral-only defaults and `note only` rows) | SKIP (gate inapplicable — no sibling) | SKIP | SKIP |
+| Two actions affect different artifacts on different surfaces (e.g., `claude_md_draft` for project CLAUDE.md + `skill_idea` for tool-side enhancement) | apply | SKIP — not decision-coupled by construction | apply |
+| `repeat=true` finding | apply (per-action evidence still required) | apply (coupling can still occur even with repeat history) | SKIP — repeat history is multi-observation evidence |
+
+The previous all-or-nothing "Gate-3 does NOT fire" framing produced a bypass: a `claude_md_draft + skill_idea` pair backed by a single non-repeat observation would silently skip (a) and (c) along with (b), defeating the core evidence-robustness intent. This table restores sub-condition granularity.
 
 **Decision-coupling examples for sub-condition (b):**
 
