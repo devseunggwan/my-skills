@@ -94,7 +94,14 @@ def _resolve_body(flag: str, value: str) -> str:
 
 
 def _extract_gh_body(argv: list[str]) -> str | None:
-    """Pull body text from --body / --body-file in a gh argv. None if absent."""
+    """Pull body text from --body / --body-file in a gh argv. None if absent.
+
+    `gh issue/pr comment` and friends only accept body via flags (--body / -b
+    / --body-file / -F per `gh <subcmd> --help`); positional form
+    `gh issue comment <num> "body"` is rejected by gh itself with
+    `accepts 1 arg(s)`. Detecting positional shape would only add noise on
+    already-invalid invocations, so this extractor is flag-only.
+    """
     for i, tok in enumerate(argv):
         if "=" in tok:
             key, _, val = tok.partition("=")
@@ -148,26 +155,72 @@ def _is_mcp_external_write(tool_name: str) -> bool:
     return any(p.match(tool_name) for p in MCP_EXTERNAL_WRITE_PATTERNS)
 
 
-def _extract_mcp_body(tool_input: dict) -> str:
-    """Best-effort body extraction from MCP tool_input.
+# Leaf keys whose value is body content (collect descendant strings).
+BODY_LEAF_KEYS = frozenset({
+    "text", "content", "body", "message", "page_content",
+})
 
-    Different MCP servers use different field names. Cover common shapes:
-    text / content / body / message / page_content / rich_text (concatenated).
-    Returns empty string when nothing matches — body-less calls are not flagged.
+# Container keys that wrap block/rich-text lists. Inside a container we
+# traverse wrapper dicts (paragraph, heading_1, section, ...) until we hit
+# a body leaf or another container.
+BODY_CONTAINER_KEYS = frozenset({
+    "children", "blocks", "rich_text",
+})
+
+
+# [PR #179] P2: MCP payloads nest body text under shapes like Notion's
+# `children[].paragraph.rich_text[].text.content` (3 levels deep) and Slack's
+# `blocks[].text.text`. A flat top-level scan missed both. An unconstrained
+# recursive walk (earlier revision) over-collected siblings — page property
+# titles like `properties.Name.title[].text.content` would surface and trip
+# markers like "potential" / "likely" inside legitimate titles. So entry into
+# body subtrees is gated: top level accepts BODY_LEAF_KEYS or BODY_CONTAINER_KEYS;
+# inside containers, wrapper dicts (paragraph / section / heading_X) are
+# transparent — recursion continues until a leaf is reached.
+def _collect_under_leaf(node, parts: list[str]) -> None:
+    """Collect every string descendant. Called once a leaf key is entered."""
+    if isinstance(node, str):
+        parts.append(node)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_under_leaf(item, parts)
+    elif isinstance(node, dict):
+        for val in node.values():
+            _collect_under_leaf(val, parts)
+
+
+def _walk_in_container(node, parts: list[str]) -> None:
+    """Inside `children` / `blocks` / `rich_text`: traverse wrapper dicts
+    (paragraph / section / heading_X) and nested containers transparently,
+    switching to leaf-collection only at body keys."""
+    if isinstance(node, list):
+        for item in node:
+            _walk_in_container(item, parts)
+    elif isinstance(node, dict):
+        for key, val in node.items():
+            if isinstance(key, str) and key.lower() in BODY_LEAF_KEYS:
+                _collect_under_leaf(val, parts)
+            else:
+                _walk_in_container(val, parts)
+
+
+def _extract_mcp_body(tool_input: dict) -> str:
+    """Body extraction from MCP tool_input gated by recognized entry points.
+
+    At the top level only BODY_LEAF_KEYS and BODY_CONTAINER_KEYS are
+    entered — sibling keys like `properties`, `parent`, `channel`, `title`
+    are ignored so that property metadata (e.g. Notion page property
+    titles under `properties.Name.title`) does not surface as body.
     """
     parts: list[str] = []
-    for key in ("text", "content", "body", "message", "page_content", "rich_text"):
-        val = tool_input.get(key)
-        if isinstance(val, str):
-            parts.append(val)
-        elif isinstance(val, list):
-            for item in val:
-                if isinstance(item, str):
-                    parts.append(item)
-                elif isinstance(item, dict):
-                    inner = item.get("text") or item.get("content") or ""
-                    if isinstance(inner, str):
-                        parts.append(inner)
+    for key, val in tool_input.items():
+        if not isinstance(key, str):
+            continue
+        kl = key.lower()
+        if kl in BODY_LEAF_KEYS:
+            _collect_under_leaf(val, parts)
+        elif kl in BODY_CONTAINER_KEYS:
+            _walk_in_container(val, parts)
     return "\n".join(parts)
 
 

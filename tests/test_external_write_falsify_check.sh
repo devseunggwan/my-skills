@@ -152,6 +152,40 @@ run_case "chained gh writes — all bodies verified (silent)" \
   "silent" "advisory" \
   '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1 --body \"Verified.\"; gh issue comment 2 --body \"Confirmed by query.\""}}'
 
+# --- P2: MCP nested-body recursive extraction (issue #174)
+run_case "MCP notion_append_blocks nested rich_text + marker (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"mcp__notion__notion_append_blocks","tool_input":{"block_id":"abc","children":[{"paragraph":{"rich_text":[{"text":{"content":"This might fail under load."}}]}}]}}'
+
+run_case "MCP notion_append_blocks nested verified content (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"mcp__notion__notion_append_blocks","tool_input":{"block_id":"abc","children":[{"paragraph":{"rich_text":[{"text":{"content":"Confirmed: 819 rows."}}]}}]}}'
+
+run_case "MCP slack send_message blocks nested text + marker (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"mcp__laplace-slack__slack_send_message","tool_input":{"channel":"C123","blocks":[{"type":"section","text":{"type":"mrkdwn","text":"이건 가설인데 prod 지연 가능성."}}]}}'
+
+run_case "MCP slack blocks nested verified text (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"mcp__laplace-slack__slack_send_message","tool_input":{"channel":"C123","blocks":[{"type":"section","text":{"type":"mrkdwn","text":"Verified 100 percent."}}]}}'
+
+run_case "MCP notion non-body top-level fields ignored (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"mcp__notion__notion_create_page","tool_input":{"parent_id":"likely-channel-id","title":"Potential customers list"}}'
+
+# Codex F2 regression: Notion page property titles live under
+# `properties.{name}.title[].text.content` (NOT body content). A naive
+# recursive walker would collect the title text and trip "potential " marker.
+run_case "MCP notion property title not collected as body (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"mcp__notion__notion_create_page","tool_input":{"parent":{"database_id":"abc"},"properties":{"Name":{"title":[{"text":{"content":"Potential customers list"}}]}}}}'
+
+# Notion page with property title (marker-ish string) AND children body (real
+# marker) → only children body should be collected → warn.
+run_case "MCP notion property title silent + children body warn" \
+  "warn" "advisory" \
+  '{"tool_name":"mcp__notion__notion_create_page","tool_input":{"properties":{"Name":{"title":[{"text":{"content":"safe title"}}]}},"children":[{"paragraph":{"rich_text":[{"text":{"content":"This might fail."}}]}}]}}'
+
 # --- malformed input → fail-open silent
 run_case "malformed JSON → silent" \
   "silent" "advisory" \
