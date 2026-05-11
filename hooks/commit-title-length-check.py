@@ -274,6 +274,12 @@ def main() -> int:
     if OPT_OUT_MARKER in command:
         return 0
 
+    # Bash line continuation: collapse `\<newline>` to a single space so
+    # multi-line invocations like `git commit \\\n  -m "..."` parse as one
+    # command. Mirrors the same pre-tokenize step in
+    # `external-write-falsify-check.py` and `block-gh-state-all.py`.
+    command = command.replace("\\\n", " ")
+
     tokens = safe_tokenize(command)
     if not tokens:
         return 0

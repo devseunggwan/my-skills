@@ -87,12 +87,12 @@ echo "test_commit_title_length_check"
 # ---------------------------------------------------------------------------
 
 # Exactly 50 chars
-TITLE_50="feat(scope): exactly fifty character title here!!"
+TITLE_50="feat(scope): exactly fifty character title heree!!"
 echo -n "$TITLE_50" | wc -c | grep -q "^.*50$" 2>/dev/null || true
 
 run_case "50-char title via -m (boundary, pass)" \
   "silent" \
-  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m \\\"feat(scope): exactly fifty character title here!!\\\"\"}}"
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m \\\"feat(scope): exactly fifty character title heree!!\\\"\"}}"
 
 run_case "49-char title via -m (pass)" \
   "silent" \
@@ -158,7 +158,7 @@ run_case "echo git commit fake (silent)" \
 # 51 chars — one over limit
 run_case "51-char title via -m (ask)" \
   "ask" \
-  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m \\\"feat(scope): exactly fifty-one character title hre!!\\\"\"}}"
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m \\\"feat(scope): exactly fifty-one character title hre!\\\"\"}}"
 
 # Hub #1912 regression: 78-char title
 run_case "78-char title Hub#1912 regression (ask)" \
@@ -235,8 +235,8 @@ rm -f "$TMPFILE" "$TMPFILE_LONG"
 # F1 regression — git global flags between `git` and `commit`
 # ---------------------------------------------------------------------------
 
-LONG_51="feat(scope): exactly fifty-one character title hre!!"
-LONG_50="feat(scope): exactly fifty character title here!!"
+LONG_51="feat(scope): exactly fifty-one character title hre!"
+LONG_50="feat(scope): exactly fifty character title heree!!"
 
 run_case "F1: git -C /path commit long title (ask)" \
   "ask" \
@@ -289,6 +289,24 @@ run_case "F2: git commit -mshort attached (pass)" \
 run_case "F2: attached -m long + 2nd -m body not flagged (ask on title only)" \
   "ask" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m\\\"$LONG_51\\\" -m \\\"long body that should not be checked because it is the body not the title\\\"\"}}"
+
+# ---------------------------------------------------------------------------
+# Round 2 — F3: Bash backslash line continuation. AI agents routinely split
+# long invocations across lines; without `\<newline>` preprocessing the hook
+# silently misses the title check.
+# ---------------------------------------------------------------------------
+
+run_case "R2-F3: backslash newline + -m long title (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit \\\\\n  -m \\\"$LONG_51\\\"\"}}"
+
+run_case "R2-F3: backslash newline + 50-char (boundary pass)" \
+  "silent" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit \\\\\n  -m \\\"$LONG_50\\\"\"}}"
+
+run_case "R2-F3: backslash newline + git -C global flag + long title (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C /some/path commit \\\\\n  -m \\\"$LONG_51\\\"\"}}"
 
 # ---------------------------------------------------------------------------
 echo ""
