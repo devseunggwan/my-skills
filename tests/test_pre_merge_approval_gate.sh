@@ -177,6 +177,36 @@ run_case "empty command → silent" \
   "silent" "no-delegate" \
   '{"tool_name":"Bash","tool_input":{"command":""}}'
 
+# --- gh global flags between `gh` and subcommand → ASK (F1 regression)
+
+run_case "direct session: gh -R owner/repo pr merge --squash (ask)" \
+  "ask" "no-delegate" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh -R owner/repo pr merge 1 --squash"}}'
+
+run_case "direct session: gh --repo owner/repo pr merge (ask)" \
+  "ask" "no-delegate" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh --repo owner/repo pr merge 1"}}'
+
+run_case "direct session: gh --hostname github.com pr merge (ask)" \
+  "ask" "no-delegate" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh --hostname github.com pr merge 1"}}'
+
+run_case "direct session: gh -R=owner/repo pr merge (= form, ask)" \
+  "ask" "no-delegate" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh -R=owner/repo pr merge 1"}}'
+
+run_case "direct session: gh -R owner/repo pr list (read, not merge, silent)" \
+  "silent" "no-delegate" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh -R owner/repo pr list"}}'
+
+run_case "direct session: gh -R owner/repo pr merge with ack marker (silent)" \
+  "silent" "no-delegate" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh -R owner/repo pr merge 1 # merge-approval:ack"}}'
+
+run_case "inline CMUX_DELEGATE=1 gh -R owner/repo pr merge (ask, not delegate session)" \
+  "ask" "no-delegate" \
+  '{"tool_name":"Bash","tool_input":{"command":"CMUX_DELEGATE=1 gh -R owner/repo pr merge 1"}}'
+
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

@@ -44,6 +44,16 @@ from _hook_utils import (  # type: ignore[import-not-found]  # noqa: E402
 
 OPT_OUT_MARKER = "# merge-approval:ack"
 
+# gh global flags that consume one additional argument (value).
+# When these appear between `gh` and the subcommand object, they must be
+# skipped so the subcommand check lands at the correct argv position.
+# Mirrors the same constant in external-write-falsify-check.py.
+GH_GLOBAL_FLAGS_WITH_ARG = frozenset({
+    "-R", "--repo",
+    "--hostname",
+    "--color",
+})
+
 REASON = (
     "gh pr merge detected in a direct interactive session. "
     "Merge is shared-state and irreversible — direct sessions require "
@@ -56,11 +66,32 @@ REASON = (
 
 
 def is_gh_pr_merge(argv: list[str]) -> bool:
-    """Return True iff the argv segment is a `gh pr merge` invocation."""
+    """Return True iff the argv segment is a `gh pr merge` invocation.
+
+    gh global flags (-R/--repo, --hostname, --color) may appear between
+    `gh` and the subcommand object. Walk past them before checking so
+    `gh -R owner/repo pr merge` is detected correctly.
+    """
     argv = strip_prefix(argv)
-    if len(argv) < 3:
+    if not argv or argv[0] != "gh":
         return False
-    return argv[0] == "gh" and argv[1] == "pr" and argv[2] == "merge"
+
+    # Walk past any global flags (and their arguments) to find the subcommand.
+    i = 1
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--":
+            i += 1
+            break
+        if not tok.startswith("-"):
+            break
+        i += 1
+        if "=" not in tok and tok in GH_GLOBAL_FLAGS_WITH_ARG and i < len(argv):
+            i += 1
+
+    if i + 1 >= len(argv):
+        return False
+    return argv[i] == "pr" and argv[i + 1] == "merge"
 
 
 def emit_ask(reason: str) -> None:
