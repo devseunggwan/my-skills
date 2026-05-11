@@ -326,6 +326,106 @@ run_case "FROM JSON_TABLE(...) → silent (TVF)" "pre" "silent" "" \
 run_case "CTE with column list (foo(x,y) AS) → silent on outer FROM foo" "pre" "silent" "" \
   '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"WITH foo(x, y) AS (SELECT 1, 2) SELECT * FROM foo"}}'
 
+# --- 25. session_id from payload routes to a per-session file. Two
+#         payloads with different `session_id` values must NOT share
+#         history — a DESCRIBE recorded under session A must not satisfy
+#         a query made under session B. Regression for codex R2 P2 on
+#         PR #189 (cross-session contamination via
+#         $CLAUDE_PROJECT_DIR/.praxis/describe-history.json).
+#
+# Uses a private TMPDIR so the per-session files are isolated, and
+# intentionally does NOT set PRAXIS_DESCRIBE_HISTORY_FILE (we want the
+# session_id branch to drive path resolution).
+run_session_id_isolation_case() {
+  local name="session_id from payload routes to per-session file"
+  local tmpdir
+  tmpdir=$(mktemp -d -t praxis-trino-sid-XXXXXX)
+
+  # Session A records DESCRIBE for hive.default.events.
+  local post_a='{"session_id":"sess-aaa","tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"DESCRIBE hive.default.events"}}'
+  echo "$post_a" | env -i PATH="$PATH" HOME="$HOME" TMPDIR="$tmpdir" \
+    python3 "$HOOK" post >/dev/null 2>&1
+  local post_rc=$?
+
+  # Session B (different session_id) queries the same table — should
+  # warn because session B's history file has no DESCRIBE record.
+  local stdout_file stderr_file
+  stdout_file=$(mktemp)
+  stderr_file=$(mktemp)
+  local pre_b='{"session_id":"sess-bbb","tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"SELECT col FROM hive.default.events"}}'
+  echo "$pre_b" | env -i PATH="$PATH" HOME="$HOME" TMPDIR="$tmpdir" \
+    python3 "$HOOK" pre >"$stdout_file" 2>"$stderr_file"
+  local pre_rc=$?
+  local err
+  err=$(cat "$stderr_file")
+  rm -f "$stdout_file" "$stderr_file" 2>/dev/null
+
+  local ok=1
+  [ "$post_rc" -eq 0 ] || ok=0
+  [ "$pre_rc" -eq 0 ] || ok=0
+  echo "$err" | grep -F -q "$WARN_TAG" || ok=0
+
+  # Confirm the per-session file was written for session A but not B.
+  [ -f "$tmpdir/praxis-describe-history-sess-aaa.json" ] || ok=0
+  [ ! -f "$tmpdir/praxis-describe-history-sess-bbb.json" ] || ok=0
+
+  rm -rf "$tmpdir" 2>/dev/null
+
+  if [ "$ok" -eq 1 ]; then
+    PASS=$((PASS + 1))
+    echo "  PASS  $name"
+  else
+    FAIL=$((FAIL + 1))
+    FAILED_NAMES+=("$name")
+    echo "  FAIL  $name (post_rc=$post_rc pre_rc=$pre_rc)"
+    [ -n "$err" ] && echo "        stderr: $(echo "$err" | head -c 400)"
+  fi
+}
+run_session_id_isolation_case
+
+# --- 26. CLAUDE_PROJECT_DIR no longer determines history path. Even with
+#         CLAUDE_PROJECT_DIR set, the hook must NOT write to
+#         <project>/.praxis/describe-history.json. Regression for codex
+#         R2 P2 on PR #189 — the project-rooted branch was removed.
+#
+# Strategy: run a `post` invocation with CLAUDE_PROJECT_DIR pointing at
+# a fresh temp dir, no session_id in the payload, no
+# PRAXIS_DESCRIBE_HISTORY_FILE override. Verify that
+# <project>/.praxis/describe-history.json was NOT created (the hook
+# should have fallen through to the PPID-keyed TMPDIR path instead).
+run_no_project_dir_path_case() {
+  local name="CLAUDE_PROJECT_DIR no longer determines path"
+  local project_dir tmpdir
+  project_dir=$(mktemp -d -t praxis-trino-proj-XXXXXX)
+  tmpdir=$(mktemp -d -t praxis-trino-tmp-XXXXXX)
+
+  local post_payload='{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"DESCRIBE hive.default.events"}}'
+  echo "$post_payload" | env -i PATH="$PATH" HOME="$HOME" \
+    CLAUDE_PROJECT_DIR="$project_dir" TMPDIR="$tmpdir" \
+    python3 "$HOOK" post >/dev/null 2>&1
+  local post_rc=$?
+
+  local ok=1
+  [ "$post_rc" -eq 0 ] || ok=0
+  # The project-rooted file must NOT exist.
+  [ ! -e "$project_dir/.praxis/describe-history.json" ] || ok=0
+  [ ! -d "$project_dir/.praxis" ] || ok=0
+  # Sanity: history was written somewhere under TMPDIR (PPID fallback).
+  ls "$tmpdir"/praxis-describe-history-*.json >/dev/null 2>&1 || ok=0
+
+  rm -rf "$project_dir" "$tmpdir" 2>/dev/null
+
+  if [ "$ok" -eq 1 ]; then
+    PASS=$((PASS + 1))
+    echo "  PASS  $name"
+  else
+    FAIL=$((FAIL + 1))
+    FAILED_NAMES+=("$name")
+    echo "  FAIL  $name (post_rc=$post_rc)"
+  fi
+}
+run_no_project_dir_path_case
+
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

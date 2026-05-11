@@ -1118,11 +1118,25 @@ PreToolUse / PostToolUse hooks run as independent processes — no shared
 in-memory state. The history must be persisted to disk. Resolution
 order:
 
-1. `PRAXIS_DESCRIBE_HISTORY_FILE` env var (explicit override).
-2. `$CLAUDE_PROJECT_DIR/.praxis/describe-history.json` (scoped to the
-   Claude Code project root).
-3. `${TMPDIR:-/tmp}/praxis-describe-history-${PPID}.json` (per-parent
-   fallback; PPID is the Claude Code process).
+1. `PRAXIS_DESCRIBE_HISTORY_FILE` env var (explicit override; used by
+   tests for isolation).
+2. `session_id` from the hook payload →
+   `${TMPDIR:-/tmp}/praxis-describe-history-<session_id>.json`. This is
+   the canonical praxis hook session key — same field consumed by
+   `completion-verify.sh`, `retrospect-mix-check.sh`, and
+   `strike-counter.sh`. Primary path: stable across PreToolUse /
+   PostToolUse invocations within a single Claude Code session.
+3. `${TMPDIR:-/tmp}/praxis-describe-history-${PPID}.json` — last-resort
+   back-compat fallback when the payload does not carry a `session_id`
+   (e.g., direct CLI / test invocation). PPID is the hook process's
+   parent.
+
+The `$CLAUDE_PROJECT_DIR/.praxis/describe-history.json` branch was
+intentionally removed (codex R2 P2 on PR #189): project-rooted state
+persists across Claude Code sessions in the same workspace and would
+silently satisfy a later session's gate with a DESCRIBE recorded by an
+earlier session — breaking the "in this session" contract. Same
+architectural fix as `session-intent.py` PR #190 R1.
 
 Read failures (missing file, malformed JSON) → empty history,
 fail-open. Write failures → silently skip recording.

@@ -35,16 +35,25 @@ must be persisted to a file.
 Resolution order:
 
   1. `PRAXIS_DESCRIBE_HISTORY_FILE` env var — explicit override, used by
-     tests for isolation. When set, the path is used verbatim (no PPID
-     suffix). Authors of long-running sessions can also set this to pin a
-     known location.
-  2. `$CLAUDE_PROJECT_DIR/.praxis/describe-history.json` — scoped to the
-     Claude Code project root. Survives across hook invocations within the
-     same workspace, but does not leak across projects.
-  3. `${TMPDIR:-/tmp}/praxis-describe-history-${PPID}.json` — falls back
-     to a per-parent-process file. PPID here is the hook process's parent
-     (Claude Code itself), so the file is effectively session-scoped on
-     POSIX systems where Claude Code retains its PID for the session.
+     tests for isolation. When set, the path is used verbatim. Authors
+     of long-running sessions can also set this to pin a known location.
+  2. `session_id` from the hook payload (primary key — stable across
+     PreToolUse / PostToolUse invocations within a single Claude Code
+     session) → `${TMPDIR:-/tmp}/praxis-describe-history-<session_id>.json`.
+     This is the canonical praxis hook session key, the same field
+     consumed by `completion-verify.sh`, `retrospect-mix-check.sh`, and
+     `strike-counter.sh`.
+  3. `${TMPDIR:-/tmp}/praxis-describe-history-${PPID}.json` — last-resort
+     back-compat fallback when the payload does not carry a `session_id`
+     (e.g., direct CLI / test invocation without the field). PPID here
+     is the hook process's parent.
+
+The `$CLAUDE_PROJECT_DIR/.praxis/describe-history.json` branch was
+intentionally removed (codex R2 P2 on PR #189): project-rooted state
+persists across Claude Code sessions in the same workspace and would
+silently satisfy a later session's gate with a DESCRIBE recorded by an
+earlier session — breaking the "in this session" contract. This is the
+same architectural fix applied to `session-intent.py` in PR #190.
 
 Read failures (missing file, malformed JSON, OS errors) → empty history,
 fail-open. Write failures → silently skip recording, never crash the hook.
@@ -185,7 +194,20 @@ SQL_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 # ---------------------------------------------------------------------------
 
 
-def resolve_history_path() -> str:
+def _extract_session_id(payload: dict) -> str | None:
+    """Return the trimmed `session_id` from the hook payload, or None.
+
+    This is the canonical praxis hook session key — same field consumed by
+    `completion-verify.sh`, `retrospect-mix-check.sh`, and
+    `strike-counter.sh` via `jq -r '.session_id // ...'`.
+    """
+    sid = payload.get("session_id")
+    if isinstance(sid, str) and sid.strip():
+        return sid.strip()
+    return None
+
+
+def resolve_history_path(session_id: str | None = None) -> str:
     """Resolve the session-scoped describe-history JSON path.
 
     See module docstring "Session state" for the resolution order.
@@ -194,11 +216,9 @@ def resolve_history_path() -> str:
     if override:
         return override
 
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
-    if project_dir and os.path.isdir(project_dir):
-        return os.path.join(project_dir, ".praxis", "describe-history.json")
-
     tmp = os.environ.get("TMPDIR", "/tmp").rstrip("/") or "/tmp"
+    if session_id:
+        return os.path.join(tmp, f"praxis-describe-history-{session_id}.json")
     ppid = os.getppid()
     return os.path.join(tmp, f"praxis-describe-history-{ppid}.json")
 
@@ -482,7 +502,7 @@ def run_pre() -> int:
         return 0
 
     engine = engine_for_tool(tool_name)
-    history_path = resolve_history_path()
+    history_path = resolve_history_path(_extract_session_id(payload))
     described = get_described(history_path, engine)
 
     missing = sorted(referenced - described)
@@ -531,7 +551,7 @@ def run_post() -> int:
             return 0
 
     engine = engine_for_tool(tool_name)
-    history_path = resolve_history_path()
+    history_path = resolve_history_path(_extract_session_id(payload))
     record_described(history_path, engine, table)
     return 0
 
