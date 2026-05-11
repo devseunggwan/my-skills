@@ -1104,9 +1104,18 @@ Hooks are independent processes — no shared in-memory state. Session
 intent is persisted to a JSON file, resolved in this order:
 
 1. `PRAXIS_SESSION_INTENT_FILE` env var (explicit path; used by tests)
-2. `$CLAUDE_PROJECT_DIR/.praxis-session-intent.json` (when injected)
-3. `${TMPDIR:-/tmp}/praxis-session-intent-${PPID}.json` (PPID isolates
-   concurrent Claude Code sessions)
+2. `${TMPDIR:-/tmp}/praxis-session-intent-${PPID}.json` (PPID isolates
+   concurrent Claude Code sessions **and** resets across session
+   boundaries — when the Claude Code session exits, the next session has
+   a different PPID and reads/writes a different file)
+
+A `$CLAUDE_PROJECT_DIR/.praxis-session-intent.json` tier was considered
+and intentionally **rejected** (codex P1 on PR #190): a project-rooted
+file persists across sessions on the same project and would silently
+leak `mutation_verb_seen=True` from a prior session into a new
+read-only session, breaking the session-scope contract that is this
+hook's primary purpose. Strict PPID-keyed state is the only way to
+guarantee the gate re-anchors at every session boundary.
 
 State file shape:
 

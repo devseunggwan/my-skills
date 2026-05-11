@@ -352,6 +352,75 @@ OUT=$(run_hook "$SF" "" \
 RC=$?
 case_run "17. gh -R owner/repo issue create after read-intent → ask" "ask" "$OUT" "$RC"
 
+# -----------------------------------------------------------------------
+# Case 18: resolve_state_path() does NOT honor $CLAUDE_PROJECT_DIR
+# (codex P1 regression on PR #190). A previous session's project-rooted
+# state file MUST NOT leak `mutation_verb_seen` into a new session in
+# the same project.
+# -----------------------------------------------------------------------
+PROJECT_DIR="$WORK_DIR/proj-18"
+mkdir -p "$PROJECT_DIR"
+# Pre-seed a state file at the project-dir path that the OLD code would
+# have used. The fixed code must ignore this entirely.
+echo '{"read_intent_anchored":true,"read_intent_marker":"compare","first_prompt_snippet":"prior session","mutation_verb_seen":true,"mutation_verb_seen_at":"merge"}' \
+  > "$PROJECT_DIR/.praxis-session-intent.json"
+# New session: same CLAUDE_PROJECT_DIR, read-intent opener, then mutation
+# tool call. If the project-dir branch were still honored, the gate
+# would silent-pass (leaked mutation_verb_seen). With the fix, the gate
+# must fire (ask).
+RESOLVED_PATH=$(
+  env -u PRAXIS_SESSION_INTENT_FILE CLAUDE_PROJECT_DIR="$PROJECT_DIR" \
+    python3 -c "
+import os, sys
+sys.path.insert(0, '$ROOT_DIR/hooks')
+spec_path = os.path.join('$ROOT_DIR', 'hooks', 'session-intent.py')
+import importlib.util
+spec = importlib.util.spec_from_file_location('session_intent', spec_path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.resolve_state_path())
+")
+case "$RESOLVED_PATH" in
+  "$PROJECT_DIR/.praxis-session-intent.json")
+    case_run "18. CLAUDE_PROJECT_DIR not used by resolve_state_path()" "silent" "BAD: $RESOLVED_PATH" "1"
+    ;;
+  *)
+    # Path correctly falls through to $TMPDIR/praxis-session-intent-<PPID>.json
+    case_run "18. CLAUDE_PROJECT_DIR not used by resolve_state_path()" "silent" "" "0"
+    ;;
+esac
+
+# -----------------------------------------------------------------------
+# Case 19: With CLAUDE_PROJECT_DIR set + a pre-seeded conflicting state
+# at the old project-dir path, an explicit PRAXIS_SESSION_INTENT_FILE
+# still wins. Confirms the env override remains the authoritative path
+# resolution tier after the project-dir tier was removed.
+# -----------------------------------------------------------------------
+SF=$(new_state)
+# Pre-seed a conflicting project-dir state with mutation_verb_seen=true
+# (would silently pass if honored).
+PROJECT_DIR_19="$WORK_DIR/proj-19"
+mkdir -p "$PROJECT_DIR_19"
+echo '{"read_intent_anchored":true,"mutation_verb_seen":true}' \
+  > "$PROJECT_DIR_19/.praxis-session-intent.json"
+# Open the session with read-intent in the explicit state file.
+echo '{"hookEventName":"UserPromptSubmit","prompt":"analyze the design"}' \
+  | env -u PRAXIS_INTENT_PIVOT_MODE \
+        PRAXIS_SESSION_INTENT_FILE="$SF" \
+        CLAUDE_PROJECT_DIR="$PROJECT_DIR_19" \
+    python3 "$HOOK" >/dev/null 2>&1
+# Now trigger a mutation tool. With the fix, the explicit state file
+# (no mutation_verb_seen) wins → gate fires → ask. If the project-dir
+# branch were still active, the seeded mutation_verb_seen=true would
+# silent-pass.
+OUT=$(echo '{"hookEventName":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh issue comment 1 --body x"}}' \
+  | env -u PRAXIS_INTENT_PIVOT_MODE \
+        PRAXIS_SESSION_INTENT_FILE="$SF" \
+        CLAUDE_PROJECT_DIR="$PROJECT_DIR_19" \
+    python3 "$HOOK" 2>/dev/null)
+RC=$?
+case_run "19. explicit env wins over CLAUDE_PROJECT_DIR seeded state → ask" "ask" "$OUT" "$RC"
+
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

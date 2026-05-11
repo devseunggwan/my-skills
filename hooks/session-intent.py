@@ -24,9 +24,16 @@ Two event handlers share a session state file:
 
 Session state location (in priority order):
   1. `PRAXIS_SESSION_INTENT_FILE` env var (test override; explicit path)
-  2. `$CLAUDE_PROJECT_DIR/.praxis-session-intent.json`
-  3. `${TMPDIR:-/tmp}/praxis-session-intent-${PPID}.json` (PPID isolates
-     concurrent Claude Code sessions)
+  2. `${TMPDIR:-/tmp}/praxis-session-intent-${PPID}.json` (PPID isolates
+     concurrent Claude Code sessions and resets across session boundaries)
+
+The `$CLAUDE_PROJECT_DIR/.praxis-session-intent.json` branch was removed
+intentionally (codex P1 review on PR #190): a project-rooted state file
+persists across Claude Code sessions on the same project, which violates
+the session-scope contract — a previous session that recorded
+`mutation_verb_seen=True` would silently release the gate for a *new*
+read-only session in the same project. Path resolution is now strictly
+session-scoped via the parent (Claude Code) process PID.
 
 State file shape:
   {
@@ -202,14 +209,18 @@ def detect_mutation_verb(prompt: str) -> str:
 # ---------------------------------------------------------------------------
 
 def resolve_state_path() -> str:
-    """Resolve the session state file path with the documented priority."""
+    """Resolve the session state file path with the documented priority.
+
+    The `$CLAUDE_PROJECT_DIR/.praxis-session-intent.json` branch was
+    intentionally removed (codex P1 on PR #190): project-rooted state
+    persists across sessions on the same project and would silently leak
+    `mutation_verb_seen=True` from a prior session into a new read-only
+    session, breaking the session-scope contract. Path resolution is
+    strictly session-scoped via the parent (Claude Code) process PID.
+    """
     explicit = os.environ.get("PRAXIS_SESSION_INTENT_FILE", "").strip()
     if explicit:
         return explicit
-
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
-    if project_dir and os.path.isdir(project_dir):
-        return os.path.join(project_dir, ".praxis-session-intent.json")
 
     tmp = os.environ.get("TMPDIR", "/tmp").rstrip("/")
     ppid = os.getppid()
