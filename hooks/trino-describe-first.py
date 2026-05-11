@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Trino MCP DESCRIBE-first gate (PreToolUse + PostToolUse).
+r"""Trino MCP DESCRIBE-first gate (PreToolUse + PostToolUse).
 
 Issue #182. Recurring failure mode: Trino MCP queries reference column names
 guessed from naming convention rather than verified via `DESCRIBE` first,
@@ -394,7 +394,7 @@ def tool_matches(tool_name: str) -> bool:
     return bool(get_tool_pattern().match(tool_name))
 
 
-def engine_for_tool(tool_name: str) -> str:
+def engine_for_tool(_tool_name: str) -> str:
     """Return the engine label for the history file. v1 → always 'trino'."""
     # Future: parse vendor name out of mcp__<vendor>__... and map to engine.
     return "trino"
@@ -435,7 +435,7 @@ def run_pre() -> int:
         return 0
 
     try:
-        referenced, _cte = extract_referenced_tables(query)
+        referenced, _ = extract_referenced_tables(query)
     except Exception:
         return 0  # fail-open on parse error
 
