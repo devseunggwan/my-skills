@@ -140,7 +140,7 @@ def _is_number_like(token: str) -> bool:
     return token.isdigit() or "://" in token
 
 
-# [PR #N] P3: gh CLIs that take `<obj> <sub> <num> <body>` positional form
+# [PR #179] P3: gh CLIs that take `<obj> <sub> <num> <body>` positional form
 # (e.g. `gh issue comment 1 "body"`) bypassed flag-only body extraction.
 # Detect positional body for write subcommands when the 3rd positional is
 # number-like (issue/PR id or URL) and a 4th positional follows.
@@ -217,7 +217,7 @@ BODY_TEXT_KEYS = frozenset({
 })
 
 
-# [PR #N] P2: MCP payloads nest body text under shapes like Notion's
+# [PR #179] P2: MCP payloads nest body text under shapes like Notion's
 # `children[].paragraph.rich_text[].text.content` (3 levels deep) and Slack's
 # `blocks[].text.text`. A flat top-level scan missed both. Recursive walk:
 # once a body-text key is entered, every descendant string is collected.
