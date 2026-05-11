@@ -15,9 +15,12 @@ for any segment whose argv[0..2] == ("gh", "pr", "merge"). If found:
   - Otherwise → emit permissionDecision "ask" so Claude Code surfaces a
     confirmation dialog before executing the merge.
 
-Opt-out marker: embed `# merge-approval:ack` anywhere in the command to bypass
-the gate for known-intentional invocations (mirrors the `# side-effect:ack`
-convention from side-effect-scan.py).
+No opt-out marker is provided. Issue #180's contract is that direct sessions
+ALWAYS surface a per-PR approval prompt — an agent-attachable comment marker
+would let the agent silently self-bypass the same gate it is meant to enforce.
+The only authoritative bypass is CMUX_DELEGATE=1 set in the *session's* shell
+env at startup (see note below); inline `env CMUX_DELEGATE=1 gh pr merge` does
+not satisfy this because the hook reads its own process env, not the child's.
 
 Note on inline env prefix (`env CMUX_DELEGATE=1 gh pr merge ...`):
 The hook reads its OWN process environment, not the environment of the child
@@ -42,8 +45,6 @@ from _hook_utils import (  # type: ignore[import-not-found]  # noqa: E402
     strip_prefix,
 )
 
-OPT_OUT_MARKER = "# merge-approval:ack"
-
 # gh global flags that consume one additional argument (value).
 # When these appear between `gh` and the subcommand object, they must be
 # skipped so the subcommand check lands at the correct argv position.
@@ -59,9 +60,7 @@ REASON = (
     "Merge is shared-state and irreversible — direct sessions require "
     "explicit per-PR merge approval. "
     "If you are running as a cmux-delegate background agent, set "
-    "CMUX_DELEGATE=1 in the session environment. "
-    "To acknowledge this specific invocation, embed "
-    "'# merge-approval:ack' in the command."
+    "CMUX_DELEGATE=1 in the session environment at startup."
 )
 
 
@@ -119,10 +118,6 @@ def main() -> int:
 
     command = payload.get("tool_input", {}).get("command", "") or ""
     if not command.strip():
-        return 0
-
-    # Opt-out: author explicitly acknowledged the merge side-effect.
-    if OPT_OUT_MARKER in command:
         return 0
 
     tokens = safe_tokenize(command)

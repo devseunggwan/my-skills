@@ -107,10 +107,10 @@ run_case "background agent: gh pr merge --squash (silent)" \
   "silent" "delegate" \
   '{"tool_name":"Bash","tool_input":{"command":"gh pr merge 1 --squash --delete-branch"}}'
 
-# --- Opt-out marker → SILENT
+# --- R4-F1: marker removed — agent-attachable bypass cannot exist → ASK
 
-run_case "direct session: merge-approval:ack marker (silent)" \
-  "silent" "no-delegate" \
+run_case "direct session: merge-approval:ack marker no longer bypasses (ask)" \
+  "ask" "no-delegate" \
   '{"tool_name":"Bash","tool_input":{"command":"gh pr merge 1 --squash # merge-approval:ack"}}'
 
 # --- Non-merge gh commands → SILENT
@@ -199,8 +199,8 @@ run_case "direct session: gh -R owner/repo pr list (read, not merge, silent)" \
   "silent" "no-delegate" \
   '{"tool_name":"Bash","tool_input":{"command":"gh -R owner/repo pr list"}}'
 
-run_case "direct session: gh -R owner/repo pr merge with ack marker (silent)" \
-  "silent" "no-delegate" \
+run_case "direct session: gh -R repo pr merge + ack marker no longer bypasses (ask)" \
+  "ask" "no-delegate" \
   '{"tool_name":"Bash","tool_input":{"command":"gh -R owner/repo pr merge 1 # merge-approval:ack"}}'
 
 run_case "inline CMUX_DELEGATE=1 gh -R owner/repo pr merge (ask, not delegate session)" \

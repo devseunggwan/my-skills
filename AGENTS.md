@@ -884,7 +884,7 @@ is not retrieved.
 | Direct session (no `CMUX_DELEGATE`), any `gh pr merge` | `permissionDecision: "ask"` |
 | Background agent (`CMUX_DELEGATE=1`), any `gh pr merge` | silent pass-through |
 | Inline `env CMUX_DELEGATE=1 gh pr merge` from direct session | `ask` — inline env sets the child's env, not the hook's own env |
-| Any command with `# merge-approval:ack` marker | silent pass-through (opt-out) |
+| `# merge-approval:ack` marker (or any comment text) | `ask` — no agent-attachable bypass exists by design |
 | Non-merge gh commands (`gh pr view`, `gh pr list`, etc.) | silent pass-through |
 | `git commit -m "merge note"` (merge in message, not a gh call) | silent pass-through |
 
@@ -893,10 +893,11 @@ is not retrieved.
 1. `tool_name == "Bash"` — non-Bash tools exit 0 silently.
 2. Tokenize with `_hook_utils.safe_tokenize` + `iter_command_starts` +
    `strip_prefix` and scan every command segment.
-3. Any segment whose `argv[0..2] == ("gh", "pr", "merge")` triggers the check.
+3. Any segment whose `argv[0..2] == ("gh", "pr", "merge")` triggers the check
+   (`gh` global flags such as `-R/--repo`/`--hostname`/`--color` are skipped
+   so `gh -R owner/repo pr merge` is detected correctly).
 4. If `CMUX_DELEGATE=1` in the hook's own process env → pass.
-5. If `# merge-approval:ack` appears anywhere in the raw command → pass.
-6. Otherwise → emit `permissionDecision: "ask"`.
+5. Otherwise → emit `permissionDecision: "ask"`.
 
 ### Inline env limitation (known)
 
@@ -907,18 +908,17 @@ intentional: the only authoritative delegation signal is `CMUX_DELEGATE=1`
 set in the session's shell environment at startup (e.g. by `cmux-delegate`
 when spawning the agent workspace).
 
-### Opt-out marker
+### No opt-out marker (deliberate)
 
-Embed `# merge-approval:ack` anywhere in the command to bypass the gate for
-known-intentional invocations (mirrors the `# side-effect:ack` convention from
-`side-effect-scan.py`).
+Unlike `side-effect-scan` (`# side-effect:ack`), this hook has **no
+agent-attachable bypass**. Issue #180's contract is that direct sessions
+ALWAYS surface a per-PR approval prompt — a comment-style marker would let
+the agent silently self-bypass the same gate it is meant to enforce. The
+only authoritative bypass is `CMUX_DELEGATE=1` in the *session's* shell env
+at startup; inline `env CMUX_DELEGATE=1` does not satisfy this (see above).
 
-```bash
-gh pr merge 1 --squash --delete-branch  # merge-approval:ack
-```
-
-Use sparingly — the marker is a deliberate assertion that the merge is exactly
-what the current step requires.
+If a legitimate direct-session merge must proceed, approve the surfaced
+prompt — that single confirmation is the approval the rule requires.
 
 ### Response
 
@@ -938,11 +938,14 @@ what the current step requires.
 bash tests/test_pre_merge_approval_gate.sh
 ```
 
-Covers 18 cases: 3 direct-session ASK paths (bare, `--merge`, `--delete-branch`),
-2 background-agent SILENT paths, opt-out marker SILENT, 3 non-merge command
-SILENT paths, 2 chained-command ASK paths, quoted-body SILENT (text mentions
-"gh pr merge" but is not executed), inline-env ASK, 2 non-Bash tool SILENT,
-malformed-JSON SILENT, empty-command SILENT.
+Covers direct-session ASK paths (bare, `--merge`, `--delete-branch`),
+background-agent SILENT paths, non-merge command SILENT paths,
+chained-command ASK paths, quoted-body SILENT (text mentions "gh pr merge"
+but is not executed), inline-env ASK, non-Bash tool SILENT, malformed-JSON
+SILENT, `gh -R/--repo/--hostname/--color` global-flag handling, and
+regression tests confirming the previously-shipped `# merge-approval:ack`
+marker no longer bypasses (round 4 finding — agent-attachable bypass
+removed by design).
 
 ## Multi-Platform Packaging
 
