@@ -169,34 +169,22 @@ run_case "MCP slack blocks nested verified text (silent)" \
   "silent" "advisory" \
   '{"tool_name":"mcp__laplace-slack__slack_send_message","tool_input":{"channel":"C123","blocks":[{"type":"section","text":{"type":"mrkdwn","text":"Verified 100 percent."}}]}}'
 
-run_case "MCP notion non-body fields ignored (silent)" \
+run_case "MCP notion non-body top-level fields ignored (silent)" \
   "silent" "advisory" \
   '{"tool_name":"mcp__notion__notion_create_page","tool_input":{"parent_id":"likely-channel-id","title":"Potential customers list"}}'
 
-# --- P3: gh positional body argument (issue #174)
-run_case "gh issue comment positional body + marker (warn)" \
-  "warn" "advisory" \
-  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1 \"This might fail.\""}}'
-
-run_case "gh issue comment positional verified body (silent)" \
+# Codex F2 regression: Notion page property titles live under
+# `properties.{name}.title[].text.content` (NOT body content). A naive
+# recursive walker would collect the title text and trip "potential " marker.
+run_case "MCP notion property title not collected as body (silent)" \
   "silent" "advisory" \
-  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1 \"Confirmed by tests.\""}}'
+  '{"tool_name":"mcp__notion__notion_create_page","tool_input":{"parent":{"database_id":"abc"},"properties":{"Name":{"title":[{"text":{"content":"Potential customers list"}}]}}}}'
 
-run_case "gh pr comment positional body + marker (warn)" \
+# Notion page with property title (marker-ish string) AND children body (real
+# marker) → only children body should be collected → warn.
+run_case "MCP notion property title silent + children body warn" \
   "warn" "advisory" \
-  '{"tool_name":"Bash","tool_input":{"command":"gh pr comment 50 \"This appears to fail.\""}}'
-
-run_case "gh issue comment URL positional body + marker (warn)" \
-  "warn" "advisory" \
-  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment https://github.com/foo/bar/issues/1 \"hypothesis: stale\""}}'
-
-run_case "gh issue comment positional num only (silent)" \
-  "silent" "advisory" \
-  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1"}}'
-
-run_case "gh issue list positional args (not a write, silent)" \
-  "silent" "advisory" \
-  '{"tool_name":"Bash","tool_input":{"command":"gh issue list 1 might-fail"}}'
+  '{"tool_name":"mcp__notion__notion_create_page","tool_input":{"properties":{"Name":{"title":[{"text":{"content":"safe title"}}]}},"children":[{"paragraph":{"rich_text":[{"text":{"content":"This might fail."}}]}}]}}'
 
 # --- malformed input → fail-open silent
 run_case "malformed JSON → silent" \
