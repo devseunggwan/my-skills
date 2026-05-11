@@ -152,6 +152,52 @@ run_case "chained gh writes — all bodies verified (silent)" \
   "silent" "advisory" \
   '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1 --body \"Verified.\"; gh issue comment 2 --body \"Confirmed by query.\""}}'
 
+# --- P2: MCP nested-body recursive extraction (issue #174)
+run_case "MCP notion_append_blocks nested rich_text + marker (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"mcp__notion__notion_append_blocks","tool_input":{"block_id":"abc","children":[{"paragraph":{"rich_text":[{"text":{"content":"This might fail under load."}}]}}]}}'
+
+run_case "MCP notion_append_blocks nested verified content (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"mcp__notion__notion_append_blocks","tool_input":{"block_id":"abc","children":[{"paragraph":{"rich_text":[{"text":{"content":"Confirmed: 819 rows."}}]}}]}}'
+
+run_case "MCP slack send_message blocks nested text + marker (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"mcp__laplace-slack__slack_send_message","tool_input":{"channel":"C123","blocks":[{"type":"section","text":{"type":"mrkdwn","text":"이건 가설인데 prod 지연 가능성."}}]}}'
+
+run_case "MCP slack blocks nested verified text (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"mcp__laplace-slack__slack_send_message","tool_input":{"channel":"C123","blocks":[{"type":"section","text":{"type":"mrkdwn","text":"Verified 100 percent."}}]}}'
+
+run_case "MCP notion non-body fields ignored (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"mcp__notion__notion_create_page","tool_input":{"parent_id":"likely-channel-id","title":"Potential customers list"}}'
+
+# --- P3: gh positional body argument (issue #174)
+run_case "gh issue comment positional body + marker (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1 \"This might fail.\""}}'
+
+run_case "gh issue comment positional verified body (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1 \"Confirmed by tests.\""}}'
+
+run_case "gh pr comment positional body + marker (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh pr comment 50 \"This appears to fail.\""}}'
+
+run_case "gh issue comment URL positional body + marker (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment https://github.com/foo/bar/issues/1 \"hypothesis: stale\""}}'
+
+run_case "gh issue comment positional num only (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1"}}'
+
+run_case "gh issue list positional args (not a write, silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue list 1 might-fail"}}'
+
 # --- malformed input → fail-open silent
 run_case "malformed JSON → silent" \
   "silent" "advisory" \

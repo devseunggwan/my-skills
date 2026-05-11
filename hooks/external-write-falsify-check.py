@@ -93,7 +93,7 @@ def _resolve_body(flag: str, value: str) -> str:
     return value
 
 
-def _extract_gh_body(argv: list[str]) -> str | None:
+def _extract_gh_flag_body(argv: list[str]) -> str | None:
     """Pull body text from --body / --body-file in a gh argv. None if absent."""
     for i, tok in enumerate(argv):
         if "=" in tok:
@@ -104,6 +104,69 @@ def _extract_gh_body(argv: list[str]) -> str | None:
         if tok in GH_BODY_FLAGS_WITH_ARG and i + 1 < len(argv):
             return _resolve_body(tok, argv[i + 1])
     return None
+
+
+def _gh_positional_tokens(argv: list[str]) -> list[str]:
+    """Return positional (non-flag) tokens from a gh argv, with flag-with-arg pairs peeled.
+
+    Global flags (`--repo` / `-R` / `--hostname` / `--color`) and body flags
+    (`--body` / `-b` / `--body-file` / `-F`) that take a value consume the
+    following token. Other flags are assumed bare — adequate for picking out
+    the `<obj> <sub> <num> <body>` positional spine.
+    """
+    argv = strip_prefix(argv)
+    if not argv or argv[0] != "gh":
+        return []
+    flags_with_arg = GH_GLOBAL_FLAGS_WITH_ARG | GH_BODY_FLAGS_WITH_ARG
+    positional: list[str] = []
+    i = 1
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--":
+            positional.extend(argv[i + 1:])
+            break
+        if tok.startswith("-"):
+            i += 1
+            if "=" not in tok and tok in flags_with_arg and i < len(argv):
+                i += 1
+            continue
+        positional.append(tok)
+        i += 1
+    return positional
+
+
+def _is_number_like(token: str) -> bool:
+    """Issue/PR positional argument shape: bare integer or github URL."""
+    return token.isdigit() or "://" in token
+
+
+# [PR #N] P3: gh CLIs that take `<obj> <sub> <num> <body>` positional form
+# (e.g. `gh issue comment 1 "body"`) bypassed flag-only body extraction.
+# Detect positional body for write subcommands when the 3rd positional is
+# number-like (issue/PR id or URL) and a 4th positional follows.
+def _extract_gh_positional_body(argv: list[str]) -> str | None:
+    """Positional body form: `gh <obj> <sub> <num-like> <body>`.
+
+    Restricted to known write subcommands so that read-only chains like
+    `gh issue list 1 2` cannot surface a stray positional as body.
+    """
+    positional = _gh_positional_tokens(argv)
+    if len(positional) < 4:
+        return None
+    obj, sub, num, body = positional[0], positional[1], positional[2], positional[3]
+    if (obj, sub) not in GH_WRITE_SUBCOMMANDS:
+        return None
+    if not _is_number_like(num):
+        return None
+    return body
+
+
+def _extract_gh_body(argv: list[str]) -> str | None:
+    """Pull body text from gh argv. Flag-style takes precedence; falls back to positional."""
+    flag_body = _extract_gh_flag_body(argv)
+    if flag_body is not None:
+        return flag_body
+    return _extract_gh_positional_body(argv)
 
 
 def _is_gh_external_write(argv: list[str]) -> bool:
@@ -148,26 +211,44 @@ def _is_mcp_external_write(tool_name: str) -> bool:
     return any(p.match(tool_name) for p in MCP_EXTERNAL_WRITE_PATTERNS)
 
 
-def _extract_mcp_body(tool_input: dict) -> str:
-    """Best-effort body extraction from MCP tool_input.
+# Keys whose value (and entire subtree) is treated as body content.
+BODY_TEXT_KEYS = frozenset({
+    "text", "content", "body", "message", "page_content", "rich_text",
+})
 
-    Different MCP servers use different field names. Cover common shapes:
-    text / content / body / message / page_content / rich_text (concatenated).
-    Returns empty string when nothing matches — body-less calls are not flagged.
+
+# [PR #N] P2: MCP payloads nest body text under shapes like Notion's
+# `children[].paragraph.rich_text[].text.content` (3 levels deep) and Slack's
+# `blocks[].text.text`. A flat top-level scan missed both. Recursive walk:
+# once a body-text key is entered, every descendant string is collected.
+# `mrkdwn` and similar type strings inside Slack's nested text dicts can be
+# false-collected, but they don't match hypothesis markers — harmless.
+def _walk_collect_body(node, parts: list[str], in_body_subtree: bool) -> None:
+    if isinstance(node, str):
+        if in_body_subtree:
+            parts.append(node)
+        return
+    if isinstance(node, dict):
+        for key, val in node.items():
+            child_in_body = in_body_subtree or (
+                isinstance(key, str) and key.lower() in BODY_TEXT_KEYS
+            )
+            _walk_collect_body(val, parts, child_in_body)
+    elif isinstance(node, list):
+        for item in node:
+            _walk_collect_body(item, parts, in_body_subtree)
+
+
+def _extract_mcp_body(tool_input: dict) -> str:
+    """Recursive body extraction from MCP tool_input.
+
+    Walks the entire payload tree. Once a key in BODY_TEXT_KEYS is entered,
+    every descendant string is collected as body content. Non-body siblings
+    (channel id, block id, subject lines) are ignored. Returns empty string
+    when no body keys are present.
     """
     parts: list[str] = []
-    for key in ("text", "content", "body", "message", "page_content", "rich_text"):
-        val = tool_input.get(key)
-        if isinstance(val, str):
-            parts.append(val)
-        elif isinstance(val, list):
-            for item in val:
-                if isinstance(item, str):
-                    parts.append(item)
-                elif isinstance(item, dict):
-                    inner = item.get("text") or item.get("content") or ""
-                    if isinstance(inner, str):
-                        parts.append(inner)
+    _walk_collect_body(tool_input, parts, in_body_subtree=False)
     return "\n".join(parts)
 
 

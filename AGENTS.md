@@ -799,15 +799,6 @@ default-on flip — see follow-up tracking issue):
 - **`likely` / `potential ` markers prone to false positives.** Phrases
   like "Most likely cause: stale cache" (a verified RCA write-up) or
   "Potential customers list: 5 brands" (business term) trip the warning.
-- **MCP nested-body shapes silent-pass.** The body extractor walks the
-  top-level `tool_input` dict; nested shapes such as Notion's
-  `children[].paragraph.rich_text[].text.content` or Slack's
-  `blocks[].text.text` are not traversed, so a hypothesis marker buried
-  inside those structures does NOT fire the warning. Flat-shape writes
-  (`body`, `text`, `content` at top level) work as expected.
-- **Positional `gh issue comment <num> "body"` form silent-passes.** The
-  hook inspects flag-style body sources only (`--body`, `-b`, `--body-file`, `-F`).
-  Positional body arguments are not detected.
 - **Literal `\n` inside a quoted `--body` value splits the body.** The
   shared `_hook_utils.safe_tokenize` treats literal `\n` characters as
   command separators inside quoted strings. Use `--body-file` or a
@@ -836,12 +827,14 @@ Inherited from `_hook_utils.safe_tokenize` (same primitive as
 bash tests/test_external_write_falsify_check.sh
 ```
 
-Covers 14 cases across the warn / silent / strict-block dimensions:
-`gh` write subcommands (`comment`, `create`, `edit`) with each body flag
-form (`--body`, `-b`, `--body-file`, `-F`, `--body=value`), MCP
-slack / notion writes, Korean marker, verified-claim silent paths,
-non-write commands (`gh list` / `gh search`), strict env toggle, and
-malformed-JSON fail-open.
+Covers 29 cases across the warn / silent / strict-block dimensions:
+`gh` write subcommands (`comment`, `create`, `edit`, `review`) with each
+body flag form (`--body`, `-b`, `--body-file`, `-F`, `--body=value`) and
+positional body (`gh issue comment <num> "body"`), MCP slack / notion
+writes including nested shapes (Notion `children[].paragraph.rich_text[].text.content`,
+Slack `blocks[].text.text`), Korean marker, verified-claim silent paths,
+non-write commands (`gh list` / `gh search`), chained Bash writes,
+strict env toggle, and malformed-JSON fail-open.
 
 ### Evidence-trail follow-up
 
@@ -850,8 +843,9 @@ separate issue. The decision to flip default-on (or to roll back this
 opt-in hook entirely) is gated on that trail.
 
 Code-level preconditions for any future default-on flip are tracked in
-issue #174 (P1 false-positive frequency data, P2 MCP nested-body
-extractor, P3 positional `gh` body detection).
+issue #174. P2 (MCP nested-body recursive walker) and P3 (positional
+`gh` body detection) have shipped; P1 (false-positive frequency data
+accumulation) remains open and gates the default-on flip.
 
 ## Multi-Platform Packaging
 
