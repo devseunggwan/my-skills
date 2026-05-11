@@ -76,6 +76,7 @@ GH_WRITE_SUBCOMMANDS = frozenset({
     ("pr", "create"),
     ("issue", "edit"),
     ("pr", "edit"),
+    ("pr", "review"),  # accepts --body / -b / --body-file / -F; posts public review comment
 })
 
 GH_BODY_FLAGS_WITH_ARG = frozenset({"-b", "--body", "-F", "--body-file"})

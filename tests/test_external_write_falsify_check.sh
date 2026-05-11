@@ -134,6 +134,15 @@ run_case "strict mode + no marker (silent)" \
   "silent" "strict" \
   '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 100 --body \"Verified.\""}}'
 
+# --- gh pr review (codex P2 round 3): catches body in pr review subcommand
+run_case "gh pr review --body + marker (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh pr review --comment --body \"This might break under concurrency.\""}}'
+
+run_case "gh pr review --approve + verified body (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh pr review --approve --body \"Tests pass, logic verified.\""}}'
+
 # --- chained Bash commands: scan beyond the first body
 run_case "chained gh writes — marker in 2nd write (warn)" \
   "warn" "advisory" \

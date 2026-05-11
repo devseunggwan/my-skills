@@ -727,6 +727,7 @@ question.
 |----------------|----------------------------------------------|
 | `gh issue comment --body <text>` | yes |
 | `gh pr comment -b <text>` | yes |
+| `gh pr review --comment --body <text>` (or `--approve` / `--request-changes`) | yes |
 | `gh issue create --body-file <path>` | yes (file contents read) |
 | `gh pr edit -F <path>` | yes |
 | `mcp__*slack*__*send*` / `*post*message*` | yes (body field) |
