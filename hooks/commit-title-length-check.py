@@ -53,6 +53,27 @@ MESSAGE_FLAGS = frozenset({"-m", "--message"})
 # Flags that carry a file path whose first line is the title.
 FILE_FLAGS = frozenset({"-F", "--file"})
 
+# Git global flags that appear between `git` and the subcommand.
+# These must be stripped before checking argv[1] == "commit".
+# Flags that consume the next token as their argument.
+GIT_GLOBAL_FLAGS_WITH_ARG = frozenset({
+    "-C", "-c",
+    "--git-dir", "--work-tree", "--namespace",
+    "--exec-path", "--super-prefix",
+    "--config-env", "--attr-source",
+    "-L", "--list-cmds",
+})
+# Bare flags (no argument consumed).
+GIT_GLOBAL_BARE_FLAGS = frozenset({
+    "--no-pager", "--paginate", "-p",
+    "--bare", "--no-replace-objects",
+    "--no-lazy-fetch", "--no-optional-locks",
+    "--no-advice", "--literal-pathspecs",
+    "--glob-pathspecs", "--noglob-pathspecs",
+    "--icase-pathspecs",
+    "--help", "--version", "-h", "-v",
+})
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -82,6 +103,36 @@ def _title_from_file(path: str) -> str | None:
         return None  # unreadable — silent pass
 
 
+def _strip_git_global_flags(argv: list[str]) -> list[str]:
+    """Strip git global flags that appear between 'git' and the subcommand.
+
+    Handles flags-with-arg (-C, -c, --git-dir, etc.) and bare flags
+    (--no-pager, -p, etc.), plus '='-embedded long-form (--git-dir=/path).
+    Returns argv starting at the subcommand token (e.g. ['commit', ...]).
+    """
+    i = 1  # skip 'git' at argv[0]
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--":
+            i += 1
+            break
+        if not tok.startswith("-"):
+            break
+        # Long flag with embedded '=' (e.g. --git-dir=/path) — bare, no next token.
+        if "=" in tok:
+            i += 1
+            continue
+        if tok in GIT_GLOBAL_BARE_FLAGS:
+            i += 1
+            continue
+        if tok in GIT_GLOBAL_FLAGS_WITH_ARG:
+            i += 2  # consume flag + its argument
+            continue
+        # Unknown flag — stop stripping to avoid over-consuming.
+        break
+    return argv[i:]
+
+
 def _extract_titles(argv: list[str]) -> list[str]:
     """Extract commit title candidates from a git-commit argv.
 
@@ -93,22 +144,28 @@ def _extract_titles(argv: list[str]) -> list[str]:
       git commit -m "title"
       git commit --message "title"
       git commit -m="title" / --message="title"
+      git commit -mvalue  (attached short-option, POSIX style)
       git commit -F /tmp/msg
       git commit --file /tmp/msg
       git commit -am "title"   (combined short flag, e.g. -a -m together)
       git commit --amend -m "title"
+      git -C /path commit -m "title"   (git global flags stripped)
+      git -c key=val commit -m "title" (git global flags stripped)
     """
     argv = strip_prefix(argv)
     if not argv or argv[0] != "git":
         return []
-    if len(argv) < 2 or argv[1] != "commit":
+
+    # Strip git global flags to find the actual subcommand.
+    sub_argv = _strip_git_global_flags(argv)
+    if not sub_argv or sub_argv[0] != "commit":
         return []
 
     titles: list[str] = []
     message_seen = False
-    i = 2
-    while i < len(argv):
-        tok = argv[i]
+    i = 1  # sub_argv[0] is "commit"; start scanning from index 1
+    while i < len(sub_argv):
+        tok = sub_argv[i]
 
         # Handle --flag=value embedded form.
         if "=" in tok and not tok.startswith("-") is False:
@@ -125,6 +182,20 @@ def _extract_titles(argv: list[str]) -> list[str]:
                 i += 1
                 continue
 
+        # Handle attached short-option form: -m<value> parsed as single token.
+        # shlex strips quotes, so `git commit -m"long title"` becomes ['-mlong title'].
+        # This must be checked BEFORE the combined-flag branch to avoid misrouting.
+        if (
+            tok.startswith("-m")
+            and not tok.startswith("--")
+            and len(tok) > 2
+            and not message_seen
+        ):
+            titles.append(tok[2:].split("\n")[0])
+            message_seen = True
+            i += 1
+            continue
+
         # Handle combined short flags like -am "title" (git allows -a -m merged).
         # Pattern: token starts with '-', contains 'm', and is not a long flag.
         if (
@@ -134,16 +205,16 @@ def _extract_titles(argv: list[str]) -> list[str]:
             and not message_seen
         ):
             # e.g. "-am" → treat as if -m follows
-            if i + 1 < len(argv):
-                titles.append(argv[i + 1].split("\n")[0])
+            if i + 1 < len(sub_argv):
+                titles.append(sub_argv[i + 1].split("\n")[0])
                 message_seen = True
                 i += 2
                 continue
 
         # Standard separate-token flags.
         if tok in MESSAGE_FLAGS and not message_seen:
-            if i + 1 < len(argv):
-                titles.append(argv[i + 1].split("\n")[0])
+            if i + 1 < len(sub_argv):
+                titles.append(sub_argv[i + 1].split("\n")[0])
                 message_seen = True
                 i += 2
                 continue
@@ -151,8 +222,8 @@ def _extract_titles(argv: list[str]) -> list[str]:
             continue
 
         if tok in FILE_FLAGS:
-            if i + 1 < len(argv):
-                t = _title_from_file(argv[i + 1])
+            if i + 1 < len(sub_argv):
+                t = _title_from_file(sub_argv[i + 1])
                 if t is not None:
                     titles.append(t)
                 i += 2

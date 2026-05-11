@@ -232,6 +232,65 @@ run_case "-F - stdin acknowledged limitation (silent)" \
 rm -f "$TMPFILE" "$TMPFILE_LONG"
 
 # ---------------------------------------------------------------------------
+# F1 regression — git global flags between `git` and `commit`
+# ---------------------------------------------------------------------------
+
+LONG_51="feat(scope): exactly fifty-one character title hre!!"
+LONG_50="feat(scope): exactly fifty character title here!!"
+
+run_case "F1: git -C /path commit long title (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C /some/path commit -m \\\"$LONG_51\\\"\"}}"
+
+run_case "F1: git -c flag commit long title (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -c commit.gpgsign=true commit -m \\\"$LONG_51\\\"\"}}"
+
+run_case "F1: git --git-dir=path commit long title (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git --git-dir=/repo/.git commit -m \\\"$LONG_51\\\"\"}}"
+
+run_case "F1: git --no-pager commit long title (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git --no-pager commit -m \\\"$LONG_51\\\"\"}}"
+
+run_case "F1: git -C /tmp -c foo=bar commit long title (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C /tmp -c foo=bar commit -m \\\"$LONG_51\\\"\"}}"
+
+run_case "F1: git -C /path commit 50-char title (boundary pass)" \
+  "silent" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C /some/path commit -m \\\"$LONG_50\\\"\"}}"
+
+run_case "F1: git -C /path status (not commit, silent)" \
+  "silent" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C /some/path status\"}}"
+
+run_case "F1: git -C /path log (not commit, silent)" \
+  "silent" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C /some/path log\"}}"
+
+# ---------------------------------------------------------------------------
+# F2 regression — attached -m<value> short-option form
+# ---------------------------------------------------------------------------
+
+run_case "F2: git commit -m\"long title\" attached (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m\\\"$LONG_51\\\"\"}}"
+
+run_case "F2: git commit -m\"50-char title\" attached (boundary pass)" \
+  "silent" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m\\\"$LONG_50\\\"\"}}"
+
+run_case "F2: git commit -mshort attached (pass)" \
+  "silent" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -mshort\"}}"
+
+run_case "F2: attached -m long + 2nd -m body not flagged (ask on title only)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m\\\"$LONG_51\\\" -m \\\"long body that should not be checked because it is the body not the title\\\"\"}}"
+
+# ---------------------------------------------------------------------------
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
