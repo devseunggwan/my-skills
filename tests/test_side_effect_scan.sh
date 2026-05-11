@@ -198,12 +198,16 @@ print(json.dumps({
   esac
 }
 
-cmux_run "delegate gh pr merge silent"      pass "gh pr merge 1 --squash"
-cmux_run "delegate gh -R pr merge silent"   pass "gh -R owner/repo pr merge 1"
-cmux_run "delegate gh pr create silent"     pass "gh pr create --title x --body y"
-cmux_run "delegate git push still asks"     ask  "git push origin main"
-cmux_run "delegate git commit still asks"   ask  "git commit -m wip"
-cmux_run "delegate kubectl apply still ask" ask  "kubectl apply -f x.yaml"
+cmux_run "delegate gh pr merge silent"        pass "gh pr merge 1 --squash"
+cmux_run "delegate gh -R pr merge silent"     pass "gh -R owner/repo pr merge 1"
+cmux_run "delegate gh --repo pr merge silent" pass "gh --repo owner/repo pr merge 1"
+# Round 3: bypass narrowed to gh pr merge only — siblings in gh-merge category
+# (gh pr create, gh workflow run) must still ask even in delegate sessions.
+cmux_run "delegate gh pr create still asks"   ask  "gh pr create --title x --body y"
+cmux_run "delegate gh workflow run still ask" ask  "gh workflow run deploy.yml"
+cmux_run "delegate git push still asks"       ask  "git push origin main"
+cmux_run "delegate git commit still asks"     ask  "git commit -m wip"
+cmux_run "delegate kubectl apply still ask"   ask  "kubectl apply -f x.yaml"
 
 # --- non-Bash tool passthrough ---------------------------------------------
 non_bash_out=$(echo '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}' | "$HOOK" 2>/dev/null)

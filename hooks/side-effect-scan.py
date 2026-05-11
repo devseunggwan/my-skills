@@ -90,9 +90,38 @@ def argv_matches(argv: list[str], positions, expected) -> bool:
     return True
 
 
-def detect(argv: list[str]) -> list[str]:
+# Codex r3 #187: round 2 bypassed the entire `gh-merge` category under
+# CMUX_DELEGATE=1, which also silenced `gh pr create` and `gh workflow run`
+# (other entries in the same category) — broader than the sibling
+# pre-merge-approval-gate hook's scope. The narrowed bypass below targets
+# only `gh pr merge` (with optional gh global flags), leaving sibling
+# patterns gated.
+GH_GLOBAL_FLAGS_WITH_ARG = frozenset({"-R", "--repo", "--hostname", "--color"})
+
+
+def _is_gh_pr_merge(argv: list[str]) -> bool:
+    """Return True iff argv is `gh [global flags] pr merge ...`."""
+    if not argv or argv[0] != "gh":
+        return False
+    i = 1
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--":
+            i += 1
+            break
+        if not tok.startswith("-"):
+            break
+        i += 1
+        if "=" not in tok and tok in GH_GLOBAL_FLAGS_WITH_ARG and i < len(argv):
+            i += 1
+    return i + 1 < len(argv) and argv[i] == "pr" and argv[i + 1] == "merge"
+
+
+def detect(argv: list[str], delegate_bypass: bool = False) -> list[str]:
     argv = strip_prefix(argv)
     if not argv:
+        return []
+    if delegate_bypass and _is_gh_pr_merge(argv):
         return []
     cmd = argv[0].rsplit("/", 1)[-1]
     matched = []
@@ -167,19 +196,13 @@ def main() -> int:
     if not tokens:
         return 0
 
+    delegate_bypass = os.environ.get("CMUX_DELEGATE") == "1"
+
     matched: list[str] = []
     for argv in iter_command_starts(tokens):
-        for cat in detect(argv):
+        for cat in detect(argv, delegate_bypass=delegate_bypass):
             if cat not in matched:
                 matched.append(cat)
-
-    # CMUX_DELEGATE=1 marks cmux-delegate background agent sessions where the
-    # sibling pre-merge-approval-gate hook already gates the merge path. Asking
-    # again here blocks the documented autonomous merge — silently drop the
-    # gh-merge category in delegate sessions only. Other categories (git-commit,
-    # git-push, kubectl-apply) continue to ask: defense-in-depth preserved.
-    if os.environ.get("CMUX_DELEGATE") == "1":
-        matched = [c for c in matched if c != "gh-merge"]
 
     if not matched:
         return 0
