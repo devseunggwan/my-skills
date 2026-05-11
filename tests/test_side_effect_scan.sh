@@ -158,6 +158,53 @@ run_case "time -f %E git push"      ask  "time -f %E git push origin main"
 run_case "time -o FILE kubectl"     ask  "time -o /tmp/t.log kubectl apply -f x.yaml"
 run_case "time --format= git push"  ask  "time --format=%E git push"
 
+# --- CMUX_DELEGATE bypass (round 2 — issue #180 integration) --------------
+# gh-merge category silently passes under CMUX_DELEGATE=1 so cmux-delegate
+# background agents stay end-to-end autonomous; sibling categories continue
+# to ask.
+
+cmux_run() {
+  local name="$1" expected="$2" command="$3"
+  local payload
+  payload=$(python3 -c '
+import json, sys
+print(json.dumps({
+    "tool_name": "Bash",
+    "tool_input": {"command": sys.argv[1]},
+}))' "$command")
+  local out
+  out=$(echo "$payload" | CMUX_DELEGATE=1 "$HOOK" 2>/dev/null)
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "FAIL  [$name] hook exited $rc"; FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name"); return
+  fi
+  case "$expected" in
+    ask)
+      if ! echo "$out" | grep -q '"permissionDecision": "ask"'; then
+        echo "FAIL  [$name] expected ask under CMUX_DELEGATE=1, got: ${out:-<empty>}"
+        FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name")
+      else
+        echo "PASS  [$name]"; PASS=$((PASS + 1))
+      fi
+      ;;
+    pass)
+      if [ -n "$out" ]; then
+        echo "FAIL  [$name] expected silent pass under CMUX_DELEGATE=1, got: $out"
+        FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name")
+      else
+        echo "PASS  [$name]"; PASS=$((PASS + 1))
+      fi
+      ;;
+  esac
+}
+
+cmux_run "delegate gh pr merge silent"      pass "gh pr merge 1 --squash"
+cmux_run "delegate gh -R pr merge silent"   pass "gh -R owner/repo pr merge 1"
+cmux_run "delegate gh pr create silent"     pass "gh pr create --title x --body y"
+cmux_run "delegate git push still asks"     ask  "git push origin main"
+cmux_run "delegate git commit still asks"   ask  "git commit -m wip"
+cmux_run "delegate kubectl apply still ask" ask  "kubectl apply -f x.yaml"
+
 # --- non-Bash tool passthrough ---------------------------------------------
 non_bash_out=$(echo '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}' | "$HOOK" 2>/dev/null)
 if [ -z "$non_bash_out" ]; then

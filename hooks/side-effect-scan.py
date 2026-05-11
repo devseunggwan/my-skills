@@ -173,6 +173,14 @@ def main() -> int:
             if cat not in matched:
                 matched.append(cat)
 
+    # CMUX_DELEGATE=1 marks cmux-delegate background agent sessions where the
+    # sibling pre-merge-approval-gate hook already gates the merge path. Asking
+    # again here blocks the documented autonomous merge — silently drop the
+    # gh-merge category in delegate sessions only. Other categories (git-commit,
+    # git-push, kubectl-apply) continue to ask: defense-in-depth preserved.
+    if os.environ.get("CMUX_DELEGATE") == "1":
+        matched = [c for c in matched if c != "gh-merge"]
+
     if not matched:
         return 0
 
