@@ -143,15 +143,27 @@ recurrences — structural enforcement replaced the memo.
 
 ### What is blocked
 
+The hook uses structural tokenization (`safe_tokenize` → `iter_command_starts` →
+`strip_prefix`) so that only live `gh search` invocations are matched. Pattern
+references inside quoted strings, commit messages, grep patterns, or echo
+arguments are transparent pass-throughs.
+
 | Command | Action |
 |---------|--------|
 | `gh search issues "q" --state all` | **BLOCKED** (exit 2) |
 | `gh search prs "q" --state=all` | **BLOCKED** (exit 2) |
 | `gh search repos foo --limit 1 --state all` | **BLOCKED** (exit 2) |
+| `FOO=1 gh search issues "q" --state all` | **BLOCKED** (env prefix peeled) |
+| `sudo gh search issues "q" --state all` | **BLOCKED** (wrapper peeled) |
+| `echo x && gh search issues "q" --state all` | **BLOCKED** (chained segment) |
 | `gh issue list --state all` | **PASS** (legitimate usage) |
 | `gh pr list --state all` | **PASS** (legitimate usage) |
 | `gh search issues "q" --state open` | **PASS** |
 | `gh search issues "q"` (no --state) | **PASS** |
+| `gh pr create --body "describes --state all"` | **PASS** (body literal) |
+| `git commit -m "note --state all impact"` | **PASS** (non-gh command) |
+| `grep -- "--state all" docs.md` | **PASS** (grep pattern) |
+| `echo "--state all is invalid"` | **PASS** (echo argument) |
 
 ### Workarounds when --state all is needed
 
@@ -164,7 +176,10 @@ recurrences — structural enforcement replaced the memo.
 bash hooks/test-block-gh-state-all.sh
 ```
 
-Covers 14 cases: 4 block paths, 7 pass paths, non-Bash tool passthrough, and malformed stdin fail-open.
+Covers 29 cases: 10 block paths (including env-prefix, sudo wrapper, chained
+segments), 17 pass paths (legitimate gh list, echo/grep/commit/pr-body false-positive
+regressions, non-gh commands), non-Bash tool passthrough, and malformed stdin
+fail-open.
 
 ## PreToolUse Side-Effect Scan
 
