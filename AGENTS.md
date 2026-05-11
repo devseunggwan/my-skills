@@ -954,6 +954,15 @@ Inherits `safe_tokenize` / `iter_command_starts` / `strip_prefix` from
   only checks the first `-m` value.
 - Subshells (`$(...)`) are opaque — acknowledged limitation shared with all
   sibling hooks.
+- **Literal newline inside a single quoted `-m` value bypasses the check.**
+  `git commit -m "Title<newline>Body"` (where `<newline>` is an unescaped LF
+  character inside the quoted string) is split by `_hook_utils.safe_tokenize`'s
+  newline-aware preprocessor before shlex sees the opening quote, leaving an
+  unmatched-quote fragment that gets dropped. Use `-m "title" -m "body"` or
+  heredoc-assigned variables for multi-line commit messages — both extract
+  the title correctly. This is a documented limitation of the shared
+  tokenizer (see `_hook_utils.py` docstring), preserved to keep
+  newline-separated multi-command detection intact for sibling hooks.
 
 ### Tests
 
