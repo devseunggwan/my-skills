@@ -151,11 +151,17 @@ FROM_JOIN_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Table-valued functions that legitimately appear in FROM/JOIN but have no
+# table to DESCRIBE. Comparison is case-insensitive and applied to the
+# unqualified, unquoted name.
+TVF_NAMES = frozenset({"UNNEST", "JSON_TABLE", "TABLE", "LATERAL"})
+
 # CTE body matcher: WITH name AS ( ... ) and chained `, name2 AS ( ... )`.
-# Non-greedy body capture; we then do paren-balance walk to find the real
-# matching `)`.
+# Optional column list `(c1, c2, ...)` between the name and `AS` per
+# Trino's `WITH foo(x, y) AS (...)` shape. Paren-balance walk follows to
+# find the real matching `)` of the CTE body.
 CTE_HEAD_RE = re.compile(
-    rf"(?:\bWITH\b|,)\s+(?:RECURSIVE\s+)?({_IDENT})\s+AS\s*\(",
+    rf"(?:\bWITH\b|,)\s+(?:RECURSIVE\s+)?({_IDENT})\s*(?:\([^)]*\))?\s+AS\s*\(",
     re.IGNORECASE,
 )
 
@@ -349,6 +355,13 @@ def extract_referenced_tables(sql: str) -> tuple[set[str], set[str]]:
             continue
         if norm in cte_names:
             continue
+        # Skip table-valued functions (UNNEST, JSON_TABLE, ...). The TVF
+        # name has no schema qualifier and matches the whitelist
+        # case-insensitively. Quoted forms (`"unnest"`) are also covered
+        # because normalize_table strips quotes.
+        unqualified = norm.rsplit(".", 1)[-1]
+        if unqualified.upper() in TVF_NAMES:
+            continue
         found.add(norm)
 
     return found, cte_names
@@ -398,6 +411,27 @@ def engine_for_tool(_tool_name: str) -> str:
     """Return the engine label for the history file. v1 → always 'trino'."""
     # Future: parse vendor name out of mcp__<vendor>__... and map to engine.
     return "trino"
+
+
+def _tool_response_indicates_error(tool_response: object) -> bool:
+    """Return True iff `tool_response` clearly signals a failed call.
+
+    PostToolUse payloads for MCP tools typically include `tool_response`
+    shaped like `{"isError": true, "content": [...]}` on failure. Older
+    payloads / non-MCP sources may omit the field entirely.
+
+    Conservative rule:
+      - `tool_response is None` (field missing entirely) → not an error
+        (fail-open: preserve back-compat with payloads that lack the
+        response). The caller distinguishes "missing" vs. "present-and-OK"
+        before invoking this helper.
+      - dict with `isError: True` → error.
+      - any other shape → not an error.
+    """
+    if isinstance(tool_response, dict):
+        if tool_response.get("isError") is True:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -487,6 +521,14 @@ def run_post() -> int:
     is_describe, table = is_describe_or_show(query)
     if not is_describe or not table:
         return 0
+
+    # Skip recording when the DESCRIBE actually failed. If the payload
+    # carries no `tool_response` at all (older event shape, non-MCP
+    # source), fail-open and still record — back-compat with payloads
+    # that lack the response field.
+    if "tool_response" in payload:
+        if _tool_response_indicates_error(payload.get("tool_response")):
+            return 0
 
     engine = engine_for_tool(tool_name)
     history_path = resolve_history_path()

@@ -1149,13 +1149,21 @@ schema churn. To add a new engine: register a new PreToolUse +
 PostToolUse matcher in `hooks.json` and update the `engine_for_tool()`
 mapping in `trino-describe-first.py`.
 
+### Failed DESCRIBE handling
+
+PostToolUse inspects the `tool_response` field before recording a
+DESCRIBE / SHOW COLUMNS as verified. When the response carries
+`isError: true` (Trino reported `TABLE_NOT_FOUND` / `SCHEMA_NOT_FOUND` /
+etc.), the table is NOT recorded — a subsequent query against that
+table still trips the gate. Payloads without a `tool_response` field
+(older event shape, non-MCP source) fall back to recording for
+back-compat.
+
 ### Known limitations
 
 - Dynamic SQL via `EXECUTE PREPARE <name> USING ...` is not parsed (the
   hook only sees the prepared statement reference, not the underlying
   SQL). Falls back to fail-open.
-- Lateral joins, `UNNEST`, and table-valued functions are not modeled
-  as table references; their arguments may be missed.
 - Parsing is regex-based, not a full SQL parser. Pathological inputs
   (mismatched parens inside string literals, `WITH` keyword inside a
   comment that was already stripped) fall back to fail-open.
@@ -1166,14 +1174,16 @@ mapping in `trino-describe-first.py`.
 bash tests/test_trino_describe_first.sh
 ```
 
-Covers 25 cases across the warn / silent / deny dimensions: undescribed
+Covers 30 cases across the warn / silent / deny dimensions: undescribed
 table → warn, FROM/JOIN with aliases → base-name extraction, CTE outer
 reference (no warn on CTE alias) but CTE body refs still checked,
 DESCRIBE/SHOW COLUMNS queries silent, non-Trino tool silent,
 post-then-pre flow (DESCRIBE recorded → subsequent query silent),
 qualified `catalog.schema.table` round-trip, SQL comment stripping,
 custom tool pattern via env, subquery FROM, block-mode deny, mixed
-described/undescribed JOIN.
+described/undescribed JOIN, failed DESCRIBE (isError) not recorded,
+back-compat for payloads lacking `tool_response`, TVF skip (`UNNEST`,
+`JSON_TABLE`), CTE column-list alias (`WITH foo(x, y) AS (...)`).
 
 ## Multi-Platform Packaging
 

@@ -292,6 +292,40 @@ run_post_then_pre "qualified name DESCRIBE then qualified query → silent" \
   '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"DESCRIBE iceberg.lake.events"}}' \
   '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"SELECT col FROM iceberg.lake.events"}}'
 
+# --- 20. Failed DESCRIBE (tool_response.isError=true) → NOT recorded; later
+#         query still warns. Regression for the "any DESCRIBE marks verified"
+#         bug — DESCRIBE on a nonexistent table must not bypass the gate.
+
+run_post_then_pre "failed DESCRIBE (isError) → not recorded, query warns" \
+  "warn" \
+  '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"DESCRIBE hive.default.nonexistent"},"tool_response":{"isError":true,"content":[{"type":"text","text":"TABLE_NOT_FOUND"}]}}' \
+  '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"SELECT col FROM hive.default.nonexistent"}}'
+
+# --- 21. Successful DESCRIBE without tool_response field (back-compat) →
+#         still recorded. Older PostToolUse payloads / non-MCP sources may
+#         omit the response field entirely — fail-open and record.
+
+run_post_then_pre "DESCRIBE without tool_response field → recorded (back-compat)" \
+  "silent" \
+  '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"DESCRIBE hive.default.events"}}' \
+  '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"SELECT col FROM hive.default.events"}}'
+
+# --- 22. TVF: UNNEST in FROM → silent (no table to describe)
+
+run_case "FROM UNNEST(ARRAY[...]) → silent (TVF, not a table)" "pre" "silent" "" \
+  '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"SELECT x FROM UNNEST(ARRAY[1,2,3]) AS t(x)"}}'
+
+# --- 23. TVF: JSON_TABLE in FROM → silent
+
+run_case "FROM JSON_TABLE(...) → silent (TVF)" "pre" "silent" "" \
+  '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"SELECT * FROM JSON_TABLE(json_col, '\''$.path'\'' COLUMNS(a VARCHAR)) AS t"}}'
+
+# --- 24. CTE with explicit column list `WITH foo(x, y) AS (...)` → foo
+#         registered as CTE alias, outer FROM foo is silent.
+
+run_case "CTE with column list (foo(x,y) AS) → silent on outer FROM foo" "pre" "silent" "" \
+  '{"tool_name":"mcp__laplace-trino__trino_query","tool_input":{"query":"WITH foo(x, y) AS (SELECT 1, 2) SELECT * FROM foo"}}'
+
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
