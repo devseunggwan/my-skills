@@ -26,6 +26,10 @@ Design notes:
   parallel (PreToolUse) and deny > ask precedence means double-block is
   harmless.
 - Exits 2 (deny) when an invalid flag is detected. Exits 0 otherwise.
+- COMPAT values are dict[str, bool] where True = flag takes a value token.
+  Value tokens after value-taking flags are consumed and never re-interpreted
+  as flag identifiers. This correctly handles positional query strings that
+  start with '-' (e.g. `gh search issues "-label:bug"`).
 """
 from __future__ import annotations
 
@@ -45,277 +49,282 @@ from _hook_utils import (  # type: ignore[import-not-found]  # noqa: E402
 # ---------------------------------------------------------------------------
 # gh global flags accepted by every subcommand (inherited flags).
 # These are always allowed regardless of subcommand. Sourced from
-# `gh --help` / `INHERITED FLAGS` section in all subcommand help pages.
+# `gh issue list --help` / `INHERITED FLAGS` section (verified 2026-05-11).
+# Note: --hostname and --color appear in `gh --help` top-level help but are
+# NOT accepted by subcommands — `gh issue list --hostname github.com` returns
+# "unknown flag: --hostname". Only --help/-h and --repo/-R are truly inherited.
 # ---------------------------------------------------------------------------
 
 GH_GLOBAL_FLAGS: frozenset[str] = frozenset({
     "--help", "-h",
     "--repo", "-R",
-    "--hostname",
-    "--color",
 })
 
 # gh global flags that consume one additional argument value token.
 GH_GLOBAL_FLAGS_WITH_ARG: frozenset[str] = frozenset({
     "-R", "--repo",
-    "--hostname",
-    "--color",
 })
 
 # ---------------------------------------------------------------------------
 # Compatibility table.
 # Keys: (subcommand, subsubcommand) tuples where subsubcommand is "" when
 #       there is no second word (e.g. ("issue", "list") vs ("search", "issues")).
-# Values: frozenset of accepted long flags (--flag) and short flags (-x).
+# Values: dict[flag_name, takes_value] where takes_value=True means the flag
+#         consumes the next token as its value (e.g. --assignee string).
+#         takes_value=False means the flag is boolean (e.g. --archived).
 #
 # Sources: `gh <subcmd> [<subsubcmd>] --help` run on 2026-05-11.
 # Short flags are listed in the FLAGS section as `-x, --longflag` pairs —
 # only the short form is included here when the long form is already present.
 # The GH_GLOBAL_FLAGS set covers inherited flags; entries below are
 # subcommand-specific flags only (avoids duplication).
+#
+# Value-taking entries (True) skip the following token so that positional
+# query strings starting with '-' (GitHub advanced-search exclusion syntax,
+# e.g. `gh search issues "-label:bug"`) are not misidentified as flags.
 # ---------------------------------------------------------------------------
 
-COMPAT: dict[tuple[str, str], frozenset[str]] = {
+COMPAT: dict[tuple[str, str], dict[str, bool]] = {
     # -----------------------------------------------------------------------
     # gh search issues
     # Source: `gh search issues --help`
     # -----------------------------------------------------------------------
-    ("search", "issues"): frozenset({
-        "--app",
-        "--archived",
-        "--assignee",
-        "--author",
-        "--closed",
-        "--commenter",
-        "--comments",
-        "--created",
-        "--include-prs",
-        "--interactions",
-        "--involves",
-        "--jq", "-q",
-        "--json",
-        "--label",
-        "--language",
-        "--limit", "-L",
-        "--locked",
-        "--match",
-        "--mentions",
-        "--milestone",
-        "--no-assignee",
-        "--no-label",
-        "--no-milestone",
-        "--no-project",
-        "--order",
-        "--owner",
-        "--project",
-        "--reactions",
-        "--repo", "-R",
-        "--sort",
-        "--state",          # accepts {open|closed} only — NOT "all"
-        "--team-mentions",
-        "--template", "-t",
-        "--updated",
-        "--visibility",
-        "--web", "-w",
-    }),
+    ("search", "issues"): {
+        "--app": True,
+        "--archived": False,
+        "--assignee": True,
+        "--author": True,
+        "--closed": True,
+        "--commenter": True,
+        "--comments": True,
+        "--created": True,
+        "--include-prs": False,
+        "--interactions": True,
+        "--involves": True,
+        "--jq": True, "-q": True,
+        "--json": True,
+        "--label": True,
+        "--language": True,
+        "--limit": True, "-L": True,
+        "--locked": False,
+        "--match": True,
+        "--mentions": True,
+        "--milestone": True,
+        "--no-assignee": False,
+        "--no-label": False,
+        "--no-milestone": False,
+        "--no-project": False,
+        "--order": True,
+        "--owner": True,
+        "--project": True,
+        "--reactions": True,
+        "--repo": True, "-R": True,
+        "--sort": True,
+        "--state": True,        # accepts {open|closed} only — NOT "all"
+        "--team-mentions": True,
+        "--template": True, "-t": True,
+        "--updated": True,
+        "--visibility": True,
+        "--web": False, "-w": False,
+    },
 
     # -----------------------------------------------------------------------
     # gh search prs
     # Source: `gh search prs --help`
     # -----------------------------------------------------------------------
-    ("search", "prs"): frozenset({
-        "--app",
-        "--archived",
-        "--assignee",
-        "--author",
-        "--base", "-B",
-        "--checks",
-        "--closed",
-        "--commenter",
-        "--comments",
-        "--created",
-        "--draft",
-        "--head", "-H",
-        "--interactions",
-        "--involves",
-        "--jq", "-q",
-        "--json",
-        "--label",
-        "--language",
-        "--limit", "-L",
-        "--locked",
-        "--match",
-        "--mentions",
-        "--merged",
-        "--merged-at",
-        "--milestone",
-        "--no-assignee",
-        "--no-label",
-        "--no-milestone",
-        "--no-project",
-        "--order",
-        "--owner",
-        "--project",
-        "--reactions",
-        "--repo", "-R",
-        "--review",
-        "--review-requested",
-        "--reviewed-by",
-        "--sort",
-        "--state",          # accepts {open|closed} only — NOT "all"
-        "--team-mentions",
-        "--template", "-t",
-        "--updated",
-        "--visibility",
-        "--web", "-w",
-    }),
+    ("search", "prs"): {
+        "--app": True,
+        "--archived": False,
+        "--assignee": True,
+        "--author": True,
+        "--base": True, "-B": True,
+        "--checks": True,
+        "--closed": True,
+        "--commenter": True,
+        "--comments": True,
+        "--created": True,
+        "--draft": False,
+        "--head": True, "-H": True,
+        "--interactions": True,
+        "--involves": True,
+        "--jq": True, "-q": True,
+        "--json": True,
+        "--label": True,
+        "--language": True,
+        "--limit": True, "-L": True,
+        "--locked": False,
+        "--match": True,
+        "--mentions": True,
+        "--merged": False,
+        "--merged-at": True,
+        "--milestone": True,
+        "--no-assignee": False,
+        "--no-label": False,
+        "--no-milestone": False,
+        "--no-project": False,
+        "--order": True,
+        "--owner": True,
+        "--project": True,
+        "--reactions": True,
+        "--repo": True, "-R": True,
+        "--review": True,
+        "--review-requested": True,
+        "--reviewed-by": True,
+        "--sort": True,
+        "--state": True,        # accepts {open|closed} only — NOT "all"
+        "--team-mentions": True,
+        "--template": True, "-t": True,
+        "--updated": True,
+        "--visibility": True,
+        "--web": False, "-w": False,
+    },
 
     # -----------------------------------------------------------------------
     # gh search repos
     # Source: `gh search repos --help`
     # -----------------------------------------------------------------------
-    ("search", "repos"): frozenset({
-        "--archived",
-        "--created",
-        "--followers",
-        "--forks",
-        "--good-first-issues",
-        "--help-wanted-issues",
-        "--include-forks",
-        "--jq", "-q",
-        "--json",
-        "--language",
-        "--license",
-        "--limit", "-L",
-        "--match",
-        "--number-topics",
-        "--order",
-        "--owner",
-        "--size",
-        "--sort",
-        "--stars",
-        "--template", "-t",
-        "--topic",
-        "--updated",
-        "--visibility",
-        "--web", "-w",
-    }),
+    ("search", "repos"): {
+        "--archived": False,
+        "--created": True,
+        "--followers": True,
+        "--forks": True,
+        "--good-first-issues": True,
+        "--help-wanted-issues": True,
+        "--include-forks": True,
+        "--jq": True, "-q": True,
+        "--json": True,
+        "--language": True,
+        "--license": True,
+        "--limit": True, "-L": True,
+        "--match": True,
+        "--number-topics": True,
+        "--order": True,
+        "--owner": True,
+        "--size": True,
+        "--sort": True,
+        "--stars": True,
+        "--template": True, "-t": True,
+        "--topic": True,
+        "--updated": True,
+        "--visibility": True,
+        "--web": False, "-w": False,
+    },
 
     # -----------------------------------------------------------------------
     # gh issue list
     # Source: `gh issue list --help`
     # -----------------------------------------------------------------------
-    ("issue", "list"): frozenset({
-        "--app",
-        "--assignee", "-a",
-        "--author", "-A",
-        "--jq", "-q",
-        "--json",
-        "--label", "-l",
-        "--limit", "-L",
-        "--mention",
-        "--milestone", "-m",
-        "--search", "-S",
-        "--state", "-s",    # accepts {open|closed|all}
-        "--template", "-t",
-        "--web", "-w",
-    }),
+    ("issue", "list"): {
+        "--app": True,
+        "--assignee": True, "-a": True,
+        "--author": True, "-A": True,
+        "--jq": True, "-q": True,
+        "--json": True,
+        "--label": True, "-l": True,
+        "--limit": True, "-L": True,
+        "--mention": True,
+        "--milestone": True, "-m": True,
+        "--search": True, "-S": True,
+        "--state": True, "-s": True,    # accepts {open|closed|all}
+        "--template": True, "-t": True,
+        "--web": False, "-w": False,
+    },
 
     # -----------------------------------------------------------------------
     # gh pr list
     # Source: `gh pr list --help`
     # -----------------------------------------------------------------------
-    ("pr", "list"): frozenset({
-        "--app",
-        "--assignee", "-a",
-        "--author", "-A",
-        "--base", "-B",
-        "--draft", "-d",
-        "--head", "-H",
-        "--jq", "-q",
-        "--json",
-        "--label", "-l",
-        "--limit", "-L",
-        "--search", "-S",
-        "--state", "-s",    # accepts {open|closed|merged|all}
-        "--template", "-t",
-        "--web", "-w",
-    }),
+    ("pr", "list"): {
+        "--app": True,
+        "--assignee": True, "-a": True,
+        "--author": True, "-A": True,
+        "--base": True, "-B": True,
+        "--draft": False, "-d": False,
+        "--head": True, "-H": True,
+        "--jq": True, "-q": True,
+        "--json": True,
+        "--label": True, "-l": True,
+        "--limit": True, "-L": True,
+        "--search": True, "-S": True,
+        "--state": True, "-s": True,    # accepts {open|closed|merged|all}
+        "--template": True, "-t": True,
+        "--web": False, "-w": False,
+    },
 
     # -----------------------------------------------------------------------
     # gh issue create
     # Source: `gh issue create --help`
     # -----------------------------------------------------------------------
-    ("issue", "create"): frozenset({
-        "--assignee", "-a",
-        "--body", "-b",
-        "--body-file", "-F",
-        "--editor", "-e",
-        "--label", "-l",
-        "--milestone", "-m",
-        "--project", "-p",
-        "--recover",
-        "--template", "-T",
-        "--title", "-t",
-        "--web", "-w",
-    }),
+    ("issue", "create"): {
+        "--assignee": True, "-a": True,
+        "--body": True, "-b": True,
+        "--body-file": True, "-F": True,
+        "--editor": False, "-e": False,
+        "--label": True, "-l": True,
+        "--milestone": True, "-m": True,
+        "--project": True, "-p": True,
+        "--recover": True,
+        "--template": True, "-T": True,
+        "--title": True, "-t": True,
+        "--web": False, "-w": False,
+    },
 
     # -----------------------------------------------------------------------
     # gh pr create
     # Source: `gh pr create --help`
     # -----------------------------------------------------------------------
-    ("pr", "create"): frozenset({
-        "--assignee", "-a",
-        "--base", "-B",
-        "--body", "-b",
-        "--body-file", "-F",
-        "--draft", "-d",
-        "--dry-run",
-        "--editor", "-e",
-        "--fill", "-f",
-        "--fill-first",
-        "--fill-verbose",
-        "--head", "-H",
-        "--label", "-l",
-        "--milestone", "-m",
-        "--no-maintainer-edit",
-        "--project", "-p",
-        "--recover",
-        "--reviewer", "-r",
-        "--template", "-T",
-        "--title", "-t",
-        "--web", "-w",
-    }),
+    ("pr", "create"): {
+        "--assignee": True, "-a": True,
+        "--base": True, "-B": True,
+        "--body": True, "-b": True,
+        "--body-file": True, "-F": True,
+        "--draft": False, "-d": False,
+        "--dry-run": False,
+        "--editor": False, "-e": False,
+        "--fill": False, "-f": False,
+        "--fill-first": False,
+        "--fill-verbose": False,
+        "--head": True, "-H": True,
+        "--label": True, "-l": True,
+        "--milestone": True, "-m": True,
+        "--no-maintainer-edit": False,
+        "--project": True, "-p": True,
+        "--recover": True,
+        "--reviewer": True, "-r": True,
+        "--template": True, "-T": True,
+        "--title": True, "-t": True,
+        "--web": False, "-w": False,
+    },
 
     # -----------------------------------------------------------------------
     # gh issue comment
     # Source: `gh issue comment --help`
     # -----------------------------------------------------------------------
-    ("issue", "comment"): frozenset({
-        "--body", "-b",
-        "--body-file", "-F",
-        "--create-if-none",
-        "--delete-last",
-        "--edit-last",
-        "--editor", "-e",
-        "--web", "-w",
-        "--yes",
-    }),
+    ("issue", "comment"): {
+        "--body": True, "-b": True,
+        "--body-file": True, "-F": True,
+        "--create-if-none": False,
+        "--delete-last": False,
+        "--edit-last": False,
+        "--editor": False, "-e": False,
+        "--web": False, "-w": False,
+        "--yes": False,
+    },
 
     # -----------------------------------------------------------------------
     # gh pr comment
     # Source: `gh pr comment --help`
     # -----------------------------------------------------------------------
-    ("pr", "comment"): frozenset({
-        "--body", "-b",
-        "--body-file", "-F",
-        "--create-if-none",
-        "--delete-last",
-        "--edit-last",
-        "--editor", "-e",
-        "--web", "-w",
-        "--yes",
-    }),
+    ("pr", "comment"): {
+        "--body": True, "-b": True,
+        "--body-file": True, "-F": True,
+        "--create-if-none": False,
+        "--delete-last": False,
+        "--edit-last": False,
+        "--editor": False, "-e": False,
+        "--web": False, "-w": False,
+        "--yes": False,
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -343,15 +352,28 @@ def _skip_gh_global_flags(argv: list[str], start: int) -> int:
     return i
 
 
-def _extract_flags(argv: list[str], flags_start: int) -> list[str]:
-    """Extract all flag tokens (tokens starting with '-') from argv[flags_start:].
+def _collect_flags(
+    argv: list[str],
+    flags_start: int,
+    subcommand_flags: dict[str, bool],
+) -> list[str]:
+    """Collect flag identifiers from argv[flags_start:], skipping value tokens.
 
-    Value tokens after `--flag value` pairs are not collected — we only care
-    about the flag identifiers themselves. Handles both `--flag value` and
-    `--flag=value` forms; the latter yields `--flag` as the flag identifier
-    (we strip the `=value` part before comparing).
+    Only collects tokens that have valid flag form:
+      - Long flags: start with '--' (e.g. --label, --state)
+      - Short flags: '-' followed by exactly one character (e.g. -R, -L, -w)
 
-    Positional arguments (issue numbers, query strings, etc.) are ignored.
+    Tokens like '-label:bug' (single dash + multiple chars) are GitHub
+    advanced-search exclusion qualifiers used as positional arguments — they
+    are NOT flag identifiers and are silently ignored. This handles cases such
+    as `gh search issues "-label:bug"` where shlex strips the quotes and
+    delivers '-label:bug' as a plain token.
+
+    For value-taking flags (subcommand_flags[flag] is True or flag is in
+    GH_GLOBAL_FLAGS_WITH_ARG), advances past the following token so that
+    values starting with '-' are never re-interpreted as flag identifiers.
+    Handles both `--flag value` and `--flag=value` forms; the latter yields
+    `--flag` as the identifier (the `=value` part is stripped).
     """
     flags: list[str] = []
     i = flags_start
@@ -360,12 +382,30 @@ def _extract_flags(argv: list[str], flags_start: int) -> list[str]:
         if tok == "--":
             break  # end of options
         if tok.startswith("-"):
+            # Determine whether this token has valid flag form.
+            # Long flag: starts with '--'
+            # Short flag: '-' + exactly one character
+            # Anything else (e.g. '-label:bug') is a positional — skip it.
+            is_long_flag = tok.startswith("--")
+            is_short_flag = len(tok) == 2 and tok[0] == "-" and tok[1] != "-"
+            if not is_long_flag and not is_short_flag:
+                i += 1  # positional that looks like a search qualifier — ignore
+                continue
             if "=" in tok:
-                # --flag=value → flag is everything before first '='
-                flags.append(tok.split("=", 1)[0])
+                # --flag=value form — value is embedded; no next-token skip needed
+                flag_name = tok.split("=", 1)[0]
+                flags.append(flag_name)
+                i += 1
             else:
                 flags.append(tok)
-        i += 1
+                i += 1
+                # Consume the value token when this is a value-taking flag
+                # so it is never interpreted as a flag identifier.
+                takes_value = subcommand_flags.get(tok) or tok in GH_GLOBAL_FLAGS_WITH_ARG
+                if takes_value and i < len(argv) and argv[i] != "--":
+                    i += 1  # skip the value token
+        else:
+            i += 1  # positional argument — skip
     return flags
 
 
@@ -415,9 +455,11 @@ def check_gh_flags(argv: list[str]) -> tuple[bool, str]:
         if key not in COMPAT:
             return False, ""  # unknown subcommand — pass through
 
-    allowed = COMPAT[key] | GH_GLOBAL_FLAGS
+    subcommand_flags: dict[str, bool] = COMPAT[key]
+    # Build the allowed set: subcommand flag names + global flag names.
+    allowed: frozenset[str] = frozenset(subcommand_flags) | GH_GLOBAL_FLAGS
 
-    flags_in_command = _extract_flags(argv, flags_start)
+    flags_in_command = _collect_flags(argv, flags_start, subcommand_flags)
     for flag in flags_in_command:
         if flag not in allowed:
             subcmd_display = (

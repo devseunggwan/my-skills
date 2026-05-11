@@ -228,6 +228,41 @@ run_case "T26: empty command → silent" \
   "silent" \
   '{"tool_name":"Bash","tool_input":{"command":""}}'
 
+# ---------------------------------------------------------------------------
+# Regression tests for PR #191 codex review fixes
+# ---------------------------------------------------------------------------
+
+# T27: gh search issues "-label:bug" → SILENT
+# GitHub advanced-search exclusion syntax: positional query starts with '-'.
+# The leading '-' is part of the query value, not a flag identifier.
+# P1 fix: _collect_flags skips value tokens so positionals after flags are
+# not misidentified; and since the query is a positional (no preceding flag),
+# it is silently ignored.
+run_case "T27: gh search issues \"-label:bug\" (positional query with dash, silent)" \
+  "silent" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh search issues \"-label:bug\""}}'
+
+# T28: gh search issues --label bug --author octocat → SILENT
+# Multiple chained value-taking flags. P1 fix: each value token is consumed
+# so "bug" and "octocat" are not re-interpreted as flag identifiers.
+run_case "T28: gh search issues --label bug --author octocat (chained value flags, silent)" \
+  "silent" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh search issues --label bug --author octocat"}}'
+
+# T29: gh issue list --hostname github.com → DENY
+# P2 fix: --hostname removed from GH_GLOBAL_FLAGS. This was incorrectly
+# passing before; verified: `gh issue list --hostname github.com` → "unknown flag".
+run_case "T29: gh issue list --hostname github.com (invalid flag after P2 trim, deny)" \
+  "deny" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue list --hostname github.com"}}'
+
+# T30: gh issue list --color always → DENY
+# P2 fix: --color removed from GH_GLOBAL_FLAGS. This was incorrectly
+# passing before; verified: `gh issue list --color always` → "unknown flag".
+run_case "T30: gh issue list --color always (invalid flag after P2 trim, deny)" \
+  "deny" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue list --color always"}}'
+
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
