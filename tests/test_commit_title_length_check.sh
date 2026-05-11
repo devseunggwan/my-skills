@@ -309,6 +309,59 @@ run_case "R2-F3: backslash newline + git -C global flag + long title (ask)" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C /some/path commit \\\\\n  -m \\\"$LONG_51\\\"\"}}"
 
 # ---------------------------------------------------------------------------
+# Round 4 — F1: -S<keyid> signed commit (POSIX combined-short rule). 'm' may
+# appear in a key id like an email "-Smike@example.com"; round 1 detected
+# combined-m via "m anywhere in tok[1:]" which incorrectly fired on -S<value>
+# tokens. Tighten to "m must be the LAST char" — combined-short requires the
+# argument-taking option to terminate the cluster.
+# ---------------------------------------------------------------------------
+
+run_case "R4-F1: -Smike@x.com + -m long title (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -Smike@example.com -m \\\"$LONG_51\\\"\"}}"
+
+run_case "R4-F1: -Smike@x.com + -m 50-char (boundary pass)" \
+  "silent" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -Smike@example.com -m \\\"$LONG_50\\\"\"}}"
+
+run_case "R4-F1: -Skeymanish -m long (ask, m mid-token not LAST)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -Skeymanish -m \\\"$LONG_51\\\"\"}}"
+
+run_case "R4-F1: -am long (preserves -am combined behavior, ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -am \\\"$LONG_51\\\"\"}}"
+
+# ---------------------------------------------------------------------------
+# Round 4 — F2: `git -C <dir> commit -F <relative-msg>`. Git resolves <msg>
+# relative to <dir>, but the hook used to open relative to its own cwd —
+# either wrong file or unreadable, silent pass either way. Carry the -C base
+# into _title_from_file.
+# ---------------------------------------------------------------------------
+
+R4_F2_DIR=$(mktemp -d)
+R4_F2_MSG="$R4_F2_DIR/.gitmsg"
+echo "fix(very-very-long-scope): include description that easily exceeds fifty" >"$R4_F2_MSG"
+R4_F2_ABS_DIR=$(mktemp -d)
+R4_F2_ABS_MSG="$R4_F2_ABS_DIR/.gitmsg"
+echo "fix(very-very-long-scope): absolute path with 73 chars title for boundary" >"$R4_F2_ABS_MSG"
+
+run_case "R4-F2: git -C <dir> commit -F <relative> long (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $R4_F2_DIR commit -F .gitmsg\"}}"
+
+run_case "R4-F2: git -C <dir> commit -F <absolute> long (ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $R4_F2_DIR commit -F $R4_F2_ABS_MSG\"}}"
+
+run_case "R4-F2: git -C <dir1> -C <dir2-rel> commit -F <rel> (stacking, ask)" \
+  "ask" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $R4_F2_DIR -C . commit -F .gitmsg\"}}"
+
+rm -f "$R4_F2_MSG" "$R4_F2_ABS_MSG"
+rmdir "$R4_F2_DIR" "$R4_F2_ABS_DIR" 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

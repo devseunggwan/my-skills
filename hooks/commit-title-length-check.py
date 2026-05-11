@@ -74,6 +74,12 @@ GIT_GLOBAL_BARE_FLAGS = frozenset({
     "--help", "--version", "-h", "-v",
 })
 
+# `git commit` short options that take NO value — valid as inner chars of a
+# POSIX combined-short cluster (e.g. -am, -vsm). Excludes value-taking short
+# options like -S (signing key id, optional attached), -F (file), -C (commit
+# ref), -c (commit), -t (template), -u (untracked mode), -m (message).
+GIT_COMMIT_NO_VALUE_SHORT = frozenset("aesvnqzp")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -92,10 +98,20 @@ def _get_max() -> int:
     return DEFAULT_MAX
 
 
-def _title_from_file(path: str) -> str | None:
-    """Read first line of a file; return None on any error or if stdin placeholder."""
+import os.path  # for joining -C base with relative -F file path
+
+
+def _title_from_file(path: str, base_dir: str | None = None) -> str | None:
+    """Read first line of a file; return None on any error or if stdin placeholder.
+
+    `base_dir` is the working directory git treats as cwd for relative paths
+    (the `-C <dir>` global flag value). When absent, paths are opened
+    relative to the hook's own cwd.
+    """
     if path == "-":
         return None  # stdin — acknowledged limitation, silent pass
+    if base_dir and not os.path.isabs(path):
+        path = os.path.join(base_dir, path)
     try:
         with open(path, encoding="utf-8") as fh:
             return fh.readline().rstrip("\n")
@@ -103,13 +119,18 @@ def _title_from_file(path: str) -> str | None:
         return None  # unreadable — silent pass
 
 
-def _strip_git_global_flags(argv: list[str]) -> list[str]:
-    """Strip git global flags that appear between 'git' and the subcommand.
+def _strip_git_global_flags(argv: list[str]) -> tuple[list[str], str | None]:
+    """Strip git global flags between 'git' and the subcommand.
 
     Handles flags-with-arg (-C, -c, --git-dir, etc.) and bare flags
     (--no-pager, -p, etc.), plus '='-embedded long-form (--git-dir=/path).
-    Returns argv starting at the subcommand token (e.g. ['commit', ...]).
+    Returns (argv_at_subcommand, c_dir). The c_dir is the value passed to
+    `-C <dir>` / `-C=<dir>` if present — the working directory git uses for
+    resolving relative paths (notably `-F <file>`). When multiple `-C` flags
+    appear (git supports stacking — each is relative to the previous), they
+    are joined left-to-right, matching git's own behavior.
     """
+    c_dir: str | None = None
     i = 1  # skip 'git' at argv[0]
     while i < len(argv):
         tok = argv[i]
@@ -126,11 +147,18 @@ def _strip_git_global_flags(argv: list[str]) -> list[str]:
             i += 1
             continue
         if tok in GIT_GLOBAL_FLAGS_WITH_ARG:
+            if tok == "-C" and i + 1 < len(argv):
+                next_dir = argv[i + 1]
+                # git -C stacking: each subsequent -C is relative to prior
+                if c_dir and not os.path.isabs(next_dir):
+                    c_dir = os.path.join(c_dir, next_dir)
+                else:
+                    c_dir = next_dir
             i += 2  # consume flag + its argument
             continue
         # Unknown flag — stop stripping to avoid over-consuming.
         break
-    return argv[i:]
+    return argv[i:], c_dir
 
 
 def _extract_titles(argv: list[str]) -> list[str]:
@@ -157,7 +185,7 @@ def _extract_titles(argv: list[str]) -> list[str]:
         return []
 
     # Strip git global flags to find the actual subcommand.
-    sub_argv = _strip_git_global_flags(argv)
+    sub_argv, c_dir = _strip_git_global_flags(argv)
     if not sub_argv or sub_argv[0] != "commit":
         return []
 
@@ -176,7 +204,7 @@ def _extract_titles(argv: list[str]) -> list[str]:
                 i += 1
                 continue
             if key in FILE_FLAGS:
-                t = _title_from_file(val)
+                t = _title_from_file(val, base_dir=c_dir)
                 if t is not None:
                     titles.append(t)
                 i += 1
@@ -196,15 +224,21 @@ def _extract_titles(argv: list[str]) -> list[str]:
             i += 1
             continue
 
-        # Handle combined short flags like -am "title" (git allows -a -m merged).
-        # Pattern: token starts with '-', contains 'm', and is not a long flag.
+        # Handle combined short flags like -am / -vsm (git allows clustered
+        # short options where -m terminates with the next token as value).
+        # Strict whitelist: every preceding char must be a known no-value short
+        # flag from git commit. This excludes `-Smike@example.com` (-S accepts
+        # attached key id; even though `com` ends in `m`, `S/@/.` etc. are not
+        # in the no-value set, so the cluster is rejected). Round-1 heuristic
+        # used "m anywhere in tok[1:]" and was unsafe; round-4 narrows it.
         if (
             tok.startswith("-")
             and not tok.startswith("--")
-            and "m" in tok[1:]
+            and len(tok) > 2
+            and tok[-1] == "m"
+            and all(c in GIT_COMMIT_NO_VALUE_SHORT for c in tok[1:-1])
             and not message_seen
         ):
-            # e.g. "-am" → treat as if -m follows
             if i + 1 < len(sub_argv):
                 titles.append(sub_argv[i + 1].split("\n")[0])
                 message_seen = True
@@ -223,7 +257,7 @@ def _extract_titles(argv: list[str]) -> list[str]:
 
         if tok in FILE_FLAGS:
             if i + 1 < len(sub_argv):
-                t = _title_from_file(sub_argv[i + 1])
+                t = _title_from_file(sub_argv[i + 1], base_dir=c_dir)
                 if t is not None:
                     titles.append(t)
                 i += 2
