@@ -1104,18 +1104,34 @@ Hooks are independent processes — no shared in-memory state. Session
 intent is persisted to a JSON file, resolved in this order:
 
 1. `PRAXIS_SESSION_INTENT_FILE` env var (explicit path; used by tests)
-2. `${TMPDIR:-/tmp}/praxis-session-intent-${PPID}.json` (PPID isolates
-   concurrent Claude Code sessions **and** resets across session
-   boundaries — when the Claude Code session exits, the next session has
-   a different PPID and reads/writes a different file)
+2. `${TMPDIR:-/tmp}/praxis-session-intent-${session_id}.json` when the
+   hook payload carries a `session_id` field (**primary key** — the
+   canonical praxis hook session pattern, also used by
+   `completion-verify.sh`, `retrospect-mix-check.sh`, and
+   `strike-counter.sh` via `jq -r '.session_id // ...'`). `session_id`
+   is stable across hook invocations within a single Claude Code session
+   and resets at session boundaries — the exact lifetime the gate needs.
+3. `${TMPDIR:-/tmp}/praxis-session-intent-${PPID}.json` (back-compat
+   fallback when the payload does not include `session_id`; retained
+   so direct CLI / test usage without a payload still works)
 
 A `$CLAUDE_PROJECT_DIR/.praxis-session-intent.json` tier was considered
 and intentionally **rejected** (codex P1 on PR #190): a project-rooted
 file persists across sessions on the same project and would silently
 leak `mutation_verb_seen=True` from a prior session into a new
 read-only session, breaking the session-scope contract that is this
-hook's primary purpose. Strict PPID-keyed state is the only way to
-guarantee the gate re-anchors at every session boundary.
+hook's primary purpose.
+
+The PPID-only fallback shipped first (codex R1 on PR #190) was
+**incoherent within a single session** (codex R2 on PR #190): Claude
+Code spawns hook commands in separate processes, so `os.getppid()` in
+one hook invocation can differ from the PPID in a subsequent hook
+invocation within the same session. The UserPromptSubmit handler would
+write to one PPID-suffixed file and the PreToolUse handler would read a
+different one — state never cohered, the gate failed open silently.
+`session_id` is stable across those invocations and is now the primary
+key. The PPID tier remains as a back-compat fallback for invocations
+without a payload `session_id`.
 
 State file shape:
 
@@ -1238,13 +1254,17 @@ The hook exits 0 silently when:
 bash tests/test_session_intent.sh
 ```
 
-21 cases: read-intent anchor write, mutation-verb flag write, mutation
+26 cases: read-intent anchor write, mutation-verb flag write, mutation
 tool call gate paths (ask / silent / deny / block-mode), Korean
 read-intent and Korean mutation verbs, malformed JSON fail-open, unknown
 event silent, quoted-string tokenization, first-call empty-state silent,
 same-utterance read+mutation silent, `gh api --method POST` ask vs
-default-GET silent, non-Bash tool silent, anchor-stickiness, and
-`gh -R owner/repo` global-flag handling.
+default-GET silent, non-Bash tool silent, anchor-stickiness,
+`gh -R owner/repo` global-flag handling, `$CLAUDE_PROJECT_DIR` is not
+honored by `resolve_state_path()` (codex R1 P1), and three `session_id`
+keying regressions (codex R2 P1): different ids route to different
+state files, payload session_id takes priority over PPID, and missing
+session_id falls back to PPID.
 
 ## Multi-Platform Packaging
 

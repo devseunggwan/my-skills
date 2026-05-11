@@ -24,16 +24,31 @@ Two event handlers share a session state file:
 
 Session state location (in priority order):
   1. `PRAXIS_SESSION_INTENT_FILE` env var (test override; explicit path)
-  2. `${TMPDIR:-/tmp}/praxis-session-intent-${PPID}.json` (PPID isolates
-     concurrent Claude Code sessions and resets across session boundaries)
+  2. `${TMPDIR:-/tmp}/praxis-session-intent-${session_id}.json` when the
+     hook payload carries a `session_id` field (the canonical praxis hook
+     pattern — same key used by `completion-verify.sh`,
+     `retrospect-mix-check.sh`, `strike-counter.sh`)
+  3. `${TMPDIR:-/tmp}/praxis-session-intent-${PPID}.json` (back-compat
+     fallback when the payload does not include `session_id`)
 
 The `$CLAUDE_PROJECT_DIR/.praxis-session-intent.json` branch was removed
 intentionally (codex P1 review on PR #190): a project-rooted state file
 persists across Claude Code sessions on the same project, which violates
 the session-scope contract — a previous session that recorded
 `mutation_verb_seen=True` would silently release the gate for a *new*
-read-only session in the same project. Path resolution is now strictly
-session-scoped via the parent (Claude Code) process PID.
+read-only session in the same project. Path resolution is strictly
+session-scoped.
+
+`session_id` is now the primary key (codex R2 P1 review on PR #190): the
+prior PPID-only design was incoherent within a single session because
+Claude Code spawns hook commands in separate processes, and `os.getppid()`
+in one hook invocation can differ from the PPID in a subsequent hook
+invocation within the same session. The UserPromptSubmit hook would write
+to one PPID-suffixed file and the PreToolUse hook would read a different
+one — state never cohered, gate failed open silently. The `session_id`
+field from the hook stdin payload is stable across hook invocations within
+a session, so it correctly addresses that incoherence while still resetting
+across session boundaries.
 
 State file shape:
   {
@@ -208,21 +223,48 @@ def detect_mutation_verb(prompt: str) -> str:
 # State file IO
 # ---------------------------------------------------------------------------
 
-def resolve_state_path() -> str:
+def _extract_session_id(payload: dict) -> str | None:
+    """Return the trimmed `session_id` from the hook payload, or None.
+
+    This is the canonical praxis hook session key — same field consumed by
+    `completion-verify.sh`, `retrospect-mix-check.sh`, and
+    `strike-counter.sh` via `jq -r '.session_id // ...'`.
+    """
+    sid = payload.get("session_id")
+    if isinstance(sid, str) and sid.strip():
+        return sid.strip()
+    return None
+
+
+def resolve_state_path(session_id: str | None = None) -> str:
     """Resolve the session state file path with the documented priority.
+
+    Priority order:
+      1. `PRAXIS_SESSION_INTENT_FILE` env var (explicit override for tests).
+      2. `session_id` from the hook payload (primary key — stable across
+         hook invocations within a single Claude Code session).
+      3. PPID fallback (back-compat path when no `session_id` was supplied;
+         retained so direct CLI/test usage without a payload still works).
 
     The `$CLAUDE_PROJECT_DIR/.praxis-session-intent.json` branch was
     intentionally removed (codex P1 on PR #190): project-rooted state
     persists across sessions on the same project and would silently leak
     `mutation_verb_seen=True` from a prior session into a new read-only
-    session, breaking the session-scope contract. Path resolution is
-    strictly session-scoped via the parent (Claude Code) process PID.
+    session, breaking the session-scope contract.
+
+    The PPID-only fallback (codex R1 on PR #190) was insufficient (codex
+    R2 on PR #190): Claude Code spawns hook commands in separate
+    processes, so `os.getppid()` can differ between UserPromptSubmit and
+    PreToolUse invocations *within the same session*. `session_id` is
+    stable across those invocations and is now the primary key.
     """
     explicit = os.environ.get("PRAXIS_SESSION_INTENT_FILE", "").strip()
     if explicit:
         return explicit
 
     tmp = os.environ.get("TMPDIR", "/tmp").rstrip("/")
+    if session_id:
+        return os.path.join(tmp, f"praxis-session-intent-{session_id}.json")
     ppid = os.getppid()
     return os.path.join(tmp, f"praxis-session-intent-{ppid}.json")
 
@@ -360,7 +402,7 @@ def handle_user_prompt_submit(payload: dict) -> int:
     if not isinstance(prompt, str) or not prompt.strip():
         return 0
 
-    path = resolve_state_path()
+    path = resolve_state_path(_extract_session_id(payload))
     state = read_state(path)
     changed = False
 
@@ -412,7 +454,7 @@ def handle_pre_tool_use(payload: dict) -> int:
     if not matched:
         return 0
 
-    path = resolve_state_path()
+    path = resolve_state_path(_extract_session_id(payload))
     state = read_state(path)
     if not state:
         # No anchor yet (first call before any UserPromptSubmit). Silent.

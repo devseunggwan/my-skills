@@ -114,7 +114,7 @@ echo "test_session_intent"
 # -----------------------------------------------------------------------
 SF=$(new_state)
 OUT=$(run_hook "$SF" "" \
-  '{"hookEventName":"UserPromptSubmit","prompt":"compare pros/cons of issue 178"}')
+  '{"hookEventName":"UserPromptSubmit","session_id":"test-session-1","prompt":"compare pros/cons of issue 178"}')
 RC=$?
 # Verify state file
 if [ "$RC" -eq 0 ] && [ -f "$SF" ] && python3 -c "
@@ -133,10 +133,10 @@ fi
 SF=$(new_state)
 # First prompt: read-intent
 run_hook "$SF" "" \
-  '{"hookEventName":"UserPromptSubmit","prompt":"review this design"}' >/dev/null
+  '{"hookEventName":"UserPromptSubmit","session_id":"test-session-2","prompt":"review this design"}' >/dev/null
 # Second prompt: mutation verb
 OUT=$(run_hook "$SF" "" \
-  '{"hookEventName":"UserPromptSubmit","prompt":"go ahead and merge it"}')
+  '{"hookEventName":"UserPromptSubmit","session_id":"test-session-2","prompt":"go ahead and merge it"}')
 RC=$?
 if python3 -c "
 import json, sys
@@ -153,9 +153,9 @@ fi
 # -----------------------------------------------------------------------
 SF=$(new_state)
 run_hook "$SF" "" \
-  '{"hookEventName":"UserPromptSubmit","prompt":"analyze the codebase"}' >/dev/null
+  '{"hookEventName":"UserPromptSubmit","session_id":"test-session-3","prompt":"analyze the codebase"}' >/dev/null
 OUT=$(run_hook "$SF" "" \
-  '{"hookEventName":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh issue comment 178 --body foo"}}')
+  '{"hookEventName":"PreToolUse","session_id":"test-session-3","tool_name":"Bash","tool_input":{"command":"gh issue comment 178 --body foo"}}')
 RC=$?
 case_run "3. gh issue comment after read-intent open → ask" "ask" "$OUT" "$RC"
 
@@ -219,9 +219,9 @@ case_run "7b. gh pr view (read) after read-intent → silent" "silent" "$OUT" "$
 # -----------------------------------------------------------------------
 SF=$(new_state)
 run_hook "$SF" "" \
-  '{"hookEventName":"UserPromptSubmit","prompt":"이슈 178의 장단점을 비교해줘"}' >/dev/null
+  '{"hookEventName":"UserPromptSubmit","session_id":"test-session-8a","prompt":"이슈 178의 장단점을 비교해줘"}' >/dev/null
 OUT=$(run_hook "$SF" "" \
-  '{"hookEventName":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh issue comment 178 --body test"}}')
+  '{"hookEventName":"PreToolUse","session_id":"test-session-8a","tool_name":"Bash","tool_input":{"command":"gh issue comment 178 --body test"}}')
 RC=$?
 case_run "8a. Korean read-intent (비교/장단점) → ask on mutation" "ask" "$OUT" "$RC"
 
@@ -290,9 +290,9 @@ case_run "12. PreToolUse before any UserPromptSubmit → silent" "silent" "$OUT"
 # -----------------------------------------------------------------------
 SF=$(new_state)
 run_hook "$SF" "" \
-  '{"hookEventName":"UserPromptSubmit","prompt":"review this PR and merge if good"}' >/dev/null
+  '{"hookEventName":"UserPromptSubmit","session_id":"test-session-13","prompt":"review this PR and merge if good"}' >/dev/null
 OUT=$(run_hook "$SF" "" \
-  '{"hookEventName":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr merge 5 --squash"}}')
+  '{"hookEventName":"PreToolUse","session_id":"test-session-13","tool_name":"Bash","tool_input":{"command":"gh pr merge 5 --squash"}}')
 RC=$?
 case_run "13. same-utterance read + mutation verb → silent on later merge" "silent" "$OUT" "$RC"
 
@@ -404,7 +404,7 @@ mkdir -p "$PROJECT_DIR_19"
 echo '{"read_intent_anchored":true,"mutation_verb_seen":true}' \
   > "$PROJECT_DIR_19/.praxis-session-intent.json"
 # Open the session with read-intent in the explicit state file.
-echo '{"hookEventName":"UserPromptSubmit","prompt":"analyze the design"}' \
+echo '{"hookEventName":"UserPromptSubmit","session_id":"test-session-19","prompt":"analyze the design"}' \
   | env -u PRAXIS_INTENT_PIVOT_MODE \
         PRAXIS_SESSION_INTENT_FILE="$SF" \
         CLAUDE_PROJECT_DIR="$PROJECT_DIR_19" \
@@ -413,13 +413,100 @@ echo '{"hookEventName":"UserPromptSubmit","prompt":"analyze the design"}' \
 # (no mutation_verb_seen) wins → gate fires → ask. If the project-dir
 # branch were still active, the seeded mutation_verb_seen=true would
 # silent-pass.
-OUT=$(echo '{"hookEventName":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh issue comment 1 --body x"}}' \
+OUT=$(echo '{"hookEventName":"PreToolUse","session_id":"test-session-19","tool_name":"Bash","tool_input":{"command":"gh issue comment 1 --body x"}}' \
   | env -u PRAXIS_INTENT_PIVOT_MODE \
         PRAXIS_SESSION_INTENT_FILE="$SF" \
         CLAUDE_PROJECT_DIR="$PROJECT_DIR_19" \
     python3 "$HOOK" 2>/dev/null)
 RC=$?
 case_run "19. explicit env wins over CLAUDE_PROJECT_DIR seeded state → ask" "ask" "$OUT" "$RC"
+
+# -----------------------------------------------------------------------
+# Case 20: Two payloads with different session_id route to different
+# state files (codex R2 P1 on PR #190 — session_id is the primary key).
+# Without PRAXIS_SESSION_INTENT_FILE override, the resolver must derive
+# the path from session_id and produce distinct paths for distinct ids.
+# -----------------------------------------------------------------------
+PATH_A=$(
+  env -u PRAXIS_SESSION_INTENT_FILE -u CLAUDE_PROJECT_DIR \
+    python3 -c "
+import os, sys
+sys.path.insert(0, '$ROOT_DIR/hooks')
+import importlib.util
+spec = importlib.util.spec_from_file_location('session_intent', os.path.join('$ROOT_DIR', 'hooks', 'session-intent.py'))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.resolve_state_path('sess-A'))
+")
+PATH_B=$(
+  env -u PRAXIS_SESSION_INTENT_FILE -u CLAUDE_PROJECT_DIR \
+    python3 -c "
+import os, sys
+sys.path.insert(0, '$ROOT_DIR/hooks')
+import importlib.util
+spec = importlib.util.spec_from_file_location('session_intent', os.path.join('$ROOT_DIR', 'hooks', 'session-intent.py'))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.resolve_state_path('sess-B'))
+")
+if [ -n "$PATH_A" ] && [ -n "$PATH_B" ] && [ "$PATH_A" != "$PATH_B" ] \
+  && echo "$PATH_A" | grep -q "praxis-session-intent-sess-A.json" \
+  && echo "$PATH_B" | grep -q "praxis-session-intent-sess-B.json"; then
+  case_run "20. different session_id routes to different state files" "silent" "" "0"
+else
+  case_run "20. different session_id routes to different state files" "silent" "PATH_A=$PATH_A PATH_B=$PATH_B" "1"
+fi
+
+# -----------------------------------------------------------------------
+# Case 21: session_id from payload takes priority over PPID. When a
+# session_id is supplied, the resolved path must NOT contain the parent
+# process PID — it must derive from session_id only.
+# -----------------------------------------------------------------------
+CURRENT_PPID=$$
+PATH_SID=$(
+  env -u PRAXIS_SESSION_INTENT_FILE -u CLAUDE_PROJECT_DIR \
+    python3 -c "
+import os, sys
+sys.path.insert(0, '$ROOT_DIR/hooks')
+import importlib.util
+spec = importlib.util.spec_from_file_location('session_intent', os.path.join('$ROOT_DIR', 'hooks', 'session-intent.py'))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.resolve_state_path('my-session-key'))
+")
+# The resolved path should contain 'my-session-key' (not the PPID).
+if echo "$PATH_SID" | grep -q "praxis-session-intent-my-session-key.json" \
+  && ! echo "$PATH_SID" | grep -q "praxis-session-intent-${CURRENT_PPID}.json"; then
+  case_run "21. session_id present → state file derived from session_id, not PPID" "silent" "" "0"
+else
+  case_run "21. session_id present → state file derived from session_id, not PPID" "silent" "PATH_SID=$PATH_SID PPID=$CURRENT_PPID" "1"
+fi
+
+# -----------------------------------------------------------------------
+# Case 22: Missing session_id falls back to PPID (back-compat path).
+# When the payload does not include session_id, the resolved path must
+# still be produced via the PPID fallback so direct CLI / test usage
+# without a payload remains functional.
+# -----------------------------------------------------------------------
+PATH_FALLBACK=$(
+  env -u PRAXIS_SESSION_INTENT_FILE -u CLAUDE_PROJECT_DIR \
+    python3 -c "
+import os, sys
+sys.path.insert(0, '$ROOT_DIR/hooks')
+import importlib.util
+spec = importlib.util.spec_from_file_location('session_intent', os.path.join('$ROOT_DIR', 'hooks', 'session-intent.py'))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+# Call with no argument — exercises the PPID fallback branch.
+print(mod.resolve_state_path())
+")
+# Should look like /tmp/praxis-session-intent-<ppid>.json — extract numeric ppid
+PPID_PATTERN=$(echo "$PATH_FALLBACK" | sed -n 's/.*praxis-session-intent-\([0-9][0-9]*\)\.json$/\1/p')
+if [ -n "$PPID_PATTERN" ]; then
+  case_run "22. missing session_id → PPID fallback path" "silent" "" "0"
+else
+  case_run "22. missing session_id → PPID fallback path" "silent" "PATH_FALLBACK=$PATH_FALLBACK" "1"
+fi
 
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
