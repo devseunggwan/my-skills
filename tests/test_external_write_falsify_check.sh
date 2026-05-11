@@ -134,6 +134,15 @@ run_case "strict mode + no marker (silent)" \
   "silent" "strict" \
   '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 100 --body \"Verified.\""}}'
 
+# --- chained Bash commands: scan beyond the first body
+run_case "chained gh writes — marker in 2nd write (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1 --body \"Verified by tests.\" && gh issue comment 2 --body \"This might fail.\""}}'
+
+run_case "chained gh writes — all bodies verified (silent)" \
+  "silent" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1 --body \"Verified.\"; gh issue comment 2 --body \"Confirmed by query.\""}}'
+
 # --- malformed input → fail-open silent
 run_case "malformed JSON → silent" \
   "silent" "advisory" \

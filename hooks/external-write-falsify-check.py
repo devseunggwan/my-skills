@@ -223,9 +223,12 @@ def main() -> int:
             return 0
         for argv in iter_command_starts(tokens):
             if _is_gh_external_write(argv):
-                body = _extract_gh_body(argv)
-                if body is not None:
+                candidate = _extract_gh_body(argv)
+                if candidate is not None and _has_hypothesis_marker(candidate):
+                    body = candidate
                     break
+                # No marker in this body — keep scanning later writes in the
+                # same Bash command (chained via ;, &&, ||, |, newline).
     elif _is_mcp_external_write(tool_name):
         body = _extract_mcp_body(tool_input)
 

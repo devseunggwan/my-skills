@@ -812,6 +812,11 @@ default-on flip — see follow-up tracking issue):
   command separators inside quoted strings. Use `--body-file` or a
   heredoc when content contains newlines and you want the full body
   scanned as one unit.
+- **`--body-file -` / `-F -` (stdin) silent-passes.** `gh` accepts `-` as
+  the file path placeholder for stdin (`gh issue create -F -`). The hook
+  treats `-` as a literal file path; `open("-")` fails and the body is
+  recorded as empty, so any hypothesis content streamed via stdin is not
+  scanned. Use `--body-file <real-path>` when you want the body scanned.
 
 ### Parsing guarantees
 
