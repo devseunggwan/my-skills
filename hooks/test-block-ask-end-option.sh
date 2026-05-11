@@ -244,6 +244,97 @@ PY
 run_case "multi-question payload, marker in second question" advisory default "$P17"
 
 # ---------------------------------------------------------------------------
+# (h) F1 regression — bare-word stop tokens must NOT trigger (codex #193)
+# ---------------------------------------------------------------------------
+
+# Before F1 fix, 'send' contained 'end' (substring of stop signal "end") and
+# 'backend' contained 'end' / 'don't stop' contained 'stop' — all three
+# false-allowed the surface. With phrase-only matching + negation guard,
+# these messages must NOT register as stop signals.
+
+T18=$(build_transcript "send the message to the team")
+P18=$(build_payload "$T18" '["Plan A", "End here"]')
+run_case "[F1] 'send' substring must NOT pass as stop signal" advisory default "$P18"
+
+T19=$(build_transcript "the backend service is failing")
+P19=$(build_payload "$T19" '["Plan A", "End here"]')
+run_case "[F1] 'backend' substring must NOT pass as stop signal" advisory default "$P19"
+
+T20=$(build_transcript "don't stop now, keep going")
+P20=$(build_payload "$T20" '["Plan A", "End here"]')
+run_case "[F1] negated 'don't stop now' must NOT pass" advisory default "$P20"
+
+T21=$(build_transcript "I quit the previous job last year")
+P21=$(build_payload "$T21" '["Plan A", "End here"]')
+run_case "[F1] 'quit' bare word in unrelated context must NOT pass" advisory default "$P21"
+
+T22=$(build_transcript "do not wrap up yet")
+P22=$(build_payload "$T22" '["Plan A", "End here"]')
+run_case "[F1] negated 'do not wrap up' must NOT pass" advisory default "$P22"
+
+# ---------------------------------------------------------------------------
+# (i) F2 regression — tool_result-only user entry must be skipped (codex #193)
+# ---------------------------------------------------------------------------
+
+# Build a transcript where the most recent user entry is tool_result-only,
+# preceded by a real human user message with an explicit stop signal.
+# Before F2 fix, the hook returned empty string at the tool_result entry
+# and never reached the real human message → false-block in strict mode.
+
+build_tool_result_transcript() {
+  local human_text="$1"
+  local path="$WORK/transcript-tr-$$-$RANDOM.jsonl"
+  python3 - "$human_text" > "$path" <<'PY'
+import json, sys
+human_text = sys.argv[1]
+# Order: oldest first (real human message), then assistant, then
+# tool_result-only user entry as the most recent.
+print(json.dumps({"type": "user", "message": {"role": "user", "content": human_text}}))
+print(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Working on it."}]}}))
+print(json.dumps({
+    "type": "user",
+    "message": {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "tool_use_id": "abc123", "content": "command output text"}
+        ],
+    },
+}))
+PY
+  echo "$path"
+}
+
+T23=$(build_tool_result_transcript "stop here please, we are done")
+P23=$(build_payload "$T23" '["Plan A", "End here"]')
+run_case "[F2] tool_result-only user entry skipped, prior 'stop here' found" pass default "$P23"
+
+T24=$(build_tool_result_transcript "그만 하고 마무리하자")
+P24=$(build_payload "$T24" '["Plan A", "여기서 종료"]')
+run_case "[F2] tool_result-only skipped, prior korean stop signal" pass strict "$P24"
+
+T25=$(build_tool_result_transcript "Continue with the next step")
+P25=$(build_payload "$T25" '["Plan A", "End here"]')
+run_case "[F2] tool_result-only skipped, prior msg has no signal → advisory" advisory default "$P25"
+
+# ---------------------------------------------------------------------------
+# (j) F1 positive — phrase-based stop signals continue to match
+# ---------------------------------------------------------------------------
+
+# Ensure the phrase-based matching still catches legitimate stop signals.
+
+T26=$(build_transcript "let's stop here for today")
+P26=$(build_payload "$T26" '["Plan A", "End here"]')
+run_case "[F1+] 'let's stop here' phrase passes" pass default "$P26"
+
+T27=$(build_transcript "I think we are done with this discussion")
+P27=$(build_payload "$T27" '["Plan A", "End here"]')
+run_case "[F1+] 'we are done' phrase passes" pass default "$P27"
+
+T28=$(build_transcript "Time to wrap up, that's all from me")
+P28=$(build_payload "$T28" '["Plan A", "End here"]')
+run_case "[F1+] 'wrap up' + 'that's all' phrases pass" pass default "$P28"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

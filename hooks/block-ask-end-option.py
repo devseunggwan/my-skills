@@ -55,9 +55,16 @@ END_OPTION_MARKERS_EN = (
 )
 
 # Stop signals in the most recent user message. Case-insensitive.
-# Each entry must be a clear directive — substring matches in unrelated
-# contexts (e.g., "end of the migration") are tolerated as false positives
-# because the hook is advisory by default.
+#
+# Korean entries stay substring-matched: CJK lacks ASCII-style word boundaries
+# and these specific tokens have low collision risk inside unrelated words
+# (e.g., "그만" / "종료" rarely appear as substrings of unrelated terms).
+#
+# English entries are phrase-only (no bare-word matching) to prevent the
+# "send" → "end" / "backend" → "end" / "don't stop" → "stop" false-allow class
+# (codex review #193 F1). A negation prefix check additionally disqualifies
+# matches preceded by "don't" / "do not" / "never" / etc. within a small
+# preceding window.
 STOP_SIGNALS_KO = (
     "종료",
     "여기까지",
@@ -66,17 +73,23 @@ STOP_SIGNALS_KO = (
     "스톱",
     "중단",
 )
-STOP_SIGNALS_EN = (
-    "stop",
-    "end",
-    "quit",
-    "done",
-    "cancel",
-    "finish",
-    "wrap up",
-    "that's all",
+STOP_SIGNALS_EN_PHRASES = (
+    "stop here", "stop now", "let's stop", "lets stop",
+    "we're done", "we are done", "i'm done", "i am done",
+    "end here", "end now", "end this", "end the session",
+    "wrap up", "wrap this up",
+    "that's all", "that is all",
     "no more",
+    "quit now",
+    "cancel this",
+    "finish here", "finish up",
+    "session end",
 )
+NEGATION_PATTERNS_EN = (
+    "don't ", "do not ", "never ", "no ", "not ",
+    "won't ", "wouldn't ", "shouldn't ", "can't ", "cannot ",
+)
+NEGATION_WINDOW = 30  # characters preceding the phrase match
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -84,10 +97,6 @@ STOP_SIGNALS_EN = (
 
 def _all_markers() -> tuple[str, ...]:
     return END_OPTION_MARKERS_KO + END_OPTION_MARKERS_EN
-
-
-def _all_stop_signals() -> tuple[str, ...]:
-    return STOP_SIGNALS_KO + STOP_SIGNALS_EN
 
 
 def _collect_option_labels(tool_input: dict) -> list[str]:
@@ -129,16 +138,27 @@ def _has_end_marker(labels: list[str]) -> bool:
 
 
 def _read_last_user_message(transcript_path: str) -> str:
-    """Return the text of the most recent user message in the transcript.
+    """Return the text of the most recent user-authored message in the transcript.
 
     Returns empty string if the file is missing, unreadable, or contains
-    no user messages. The hook is advisory by default so silent failure
-    here just means the stop-signal check is skipped — no false block.
+    no user messages with extractable human text. The hook is advisory by
+    default so silent failure here just means the stop-signal check is
+    skipped — no false block.
 
     Transcript format: JSONL where each line is a JSON object with at
     least `type` ('user' / 'assistant' / 'system') and either `message`
     (an Anthropic API message dict with `role` + `content`) or a flatter
     `content` field. Both shapes are handled.
+
+    tool_result handling (codex review #193 F2): an Anthropic user role
+    message may carry only `tool_result` content blocks when the
+    assistant invoked tools in the same turn before invoking
+    AskUserQuestion. Such entries are NOT human authored — they are the
+    runtime's bridge for tool outputs. We must skip them and keep walking
+    backward until we find a user entry that contains actual `type: text`
+    content. Returning the empty string on the first tool_result-only
+    entry causes false-block in strict mode even though the real user
+    message earlier in the transcript did signal stop.
     """
     if not transcript_path or not os.path.isfile(transcript_path):
         return ""
@@ -148,7 +168,10 @@ def _read_last_user_message(transcript_path: str) -> str:
     except OSError:
         return ""
 
-    # Walk in reverse to find the most recent user-role entry.
+    # Walk in reverse to find the most recent user-role entry whose
+    # content includes human-authored text. tool_result-only entries are
+    # skipped (continue), not returned as empty (which would block the
+    # search at the wrong layer).
     for raw in reversed(lines):
         raw = raw.strip()
         if not raw:
@@ -171,6 +194,7 @@ def _read_last_user_message(transcript_path: str) -> str:
         # Extract text. Possible shapes:
         #   {"type": "user", "message": {"role": "user", "content": "text"}}
         #   {"type": "user", "message": {"role": "user", "content": [{"type":"text","text":"..."}]}}
+        #   {"type": "user", "message": {"role": "user", "content": [{"type":"tool_result", ...}]}}
         #   {"role": "user", "content": "text"}
         content = None
         if isinstance(message, dict):
@@ -178,31 +202,78 @@ def _read_last_user_message(transcript_path: str) -> str:
         if content is None:
             content = entry.get("content")
 
+        text = ""
         if isinstance(content, str):
-            return content
-        if isinstance(content, list):
+            text = content
+        elif isinstance(content, list):
             parts: list[str] = []
             for item in content:
                 if isinstance(item, dict):
-                    text = item.get("text")
-                    if isinstance(text, str):
-                        parts.append(text)
+                    # Skip non-text blocks (tool_result, image, etc.).
+                    # Only `type: text` (or items lacking a type but
+                    # carrying a `text` field) count as human content.
+                    item_type = item.get("type")
+                    if item_type and item_type != "text":
+                        continue
+                    t = item.get("text")
+                    if isinstance(t, str):
+                        parts.append(t)
                 elif isinstance(item, str):
                     parts.append(item)
-            return "\n".join(parts)
-        return ""
+            text = "\n".join(parts)
+        # else: unexpected content shape — fall through to skip
+
+        if text.strip():
+            return text
+        # No human text in this entry — keep walking backward.
+        continue
 
     return ""
 
 
 def _has_stop_signal(user_message: str) -> bool:
+    """True if the user message carries an explicit stop directive.
+
+    Korean signals stay substring-matched (CJK has low collision risk for
+    these particular tokens). English signals are phrase-only with a
+    negation guard — bare-word matching ("end", "stop", "done") caused
+    false-allow on neutral messages like "send" / "backend" / "don't stop"
+    (codex review #193 F1).
+    """
     if not user_message:
         return False
     lower = user_message.lower()
-    for signal in _all_stop_signals():
-        if signal.lower() in lower:
+
+    # Korean: substring match.
+    for ko in STOP_SIGNALS_KO:
+        if ko in user_message:
             return True
+
+    # English: phrase match with negation guard.
+    for phrase in STOP_SIGNALS_EN_PHRASES:
+        phrase_lower = phrase.lower()
+        start = 0
+        while True:
+            idx = lower.find(phrase_lower, start)
+            if idx < 0:
+                break
+            prefix = lower[max(0, idx - NEGATION_WINDOW):idx]
+            if not _has_negation(prefix):
+                return True
+            start = idx + 1
+
     return False
+
+
+def _has_negation(prefix: str) -> bool:
+    """True if the preceding window contains a negation token.
+
+    Operates on a small window (NEGATION_WINDOW chars) immediately before
+    a phrase match. Used to disqualify "don't stop here" / "I do not
+    wrap up yet" style messages where a stop phrase appears under
+    negation.
+    """
+    return any(neg in prefix for neg in NEGATION_PATTERNS_EN)
 
 
 # ---------------------------------------------------------------------------
