@@ -76,6 +76,9 @@ run_case "block: search commits --state all"          block Bash 'gh search comm
 run_case "block: gh --no-pager search issues --state all" block Bash 'gh --no-pager search issues "q" --state all'
 run_case "block: gh -R repo search issues --state all"    block Bash 'gh -R owner/repo search issues "q" --state all'
 run_case "block: backslash continuation"              block Bash "$(printf 'gh search issues \\\n  --state all')"
+run_case "block: env prefix FOO=1 gh search"         block Bash 'FOO=1 gh search issues "q" --state all'
+run_case "block: sudo wrapper gh search"             block Bash 'sudo gh search issues "q" --state all'
+run_case "block: chained after echo &&"              block Bash 'echo x && gh search issues "q" --state all'
 
 # --- PASS: gh search without --state or with valid states --------------------
 run_case "pass: search issues no --state"             pass  Bash 'gh search issues "test"'
@@ -94,6 +97,11 @@ run_case "pass: echo quoting the pattern"             pass  Bash 'echo "Use gh s
 run_case "pass: grep containing pattern"              pass  Bash 'cat README.md | grep "gh search issues --state all"'
 run_case "pass: gh pr comment body mentioning pattern" pass Bash 'gh pr comment 128 --body "The hook blocks: gh search issues --state all"'
 run_case "pass: comment line before real command"     pass  Bash "$(printf '# gh search issues --state all\nls')"
+# false-positive regressions: non-gh-search contexts must never block
+run_case "pass: gh pr create body describes alternative" pass Bash 'gh pr create --body "documenting that --state all alternative works"'
+run_case "pass: git commit message mentions state flag"  pass Bash 'git commit -m "fix: handle --state all rejection"'
+run_case "pass: grep with -- pattern sentinel"           pass Bash 'grep -- "--state all" docs.md'
+run_case "pass: echo standalone mention"                 pass Bash 'echo "--state all is invalid for gh search"'
 
 # --- PASS: non-Bash tool → exit 0 -------------------------------------------
 run_case "pass: tool_name Read"                       pass  Read 'gh search issues --state all'
