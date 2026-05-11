@@ -263,6 +263,47 @@ run_case "T30: gh issue list --color always (invalid flag after P2 trim, deny)" 
   "deny" \
   '{"tool_name":"Bash","tool_input":{"command":"gh issue list --color always"}}'
 
+# ---------------------------------------------------------------------------
+# Regression tests for R2 P2: bogus pre-subcommand global flags
+# Before the fix, _skip_gh_global_flags() silently walked past ANY -* token
+# before the subcommand. Unknown flags placed before the subcommand would
+# cause the hook to misidentify the next token as the subcommand (e.g.
+# subcommand="github.com") or hit an unrecognised key and silent-pass.
+# ---------------------------------------------------------------------------
+
+# T31: gh --hostname github.com issue list → DENY
+# The codex R2 finding: --hostname placed before subcommand was silently passed.
+# gh itself rejects: "unknown flag: --hostname".
+run_case "T31: gh --hostname github.com issue list (bogus pre-subcommand flag, deny)" \
+  "deny" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh --hostname github.com issue list"}}'
+
+# T32: gh --color always pr list → DENY
+# --color is NOT a recognized global flag (not in GH_GLOBAL_FLAGS).
+run_case "T32: gh --color always pr list (bogus pre-subcommand flag, deny)" \
+  "deny" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh --color always pr list"}}'
+
+# T33: gh --base main issue list → DENY
+# --base is a subcommand-level flag, not a global flag. Placing it before
+# the subcommand should deny, not silently re-route.
+run_case "T33: gh --base main issue list (subcommand flag used before subcommand, deny)" \
+  "deny" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh --base main issue list"}}'
+
+# T34: gh -R owner/repo --hostname x issue list → DENY
+# Valid global flag (-R) followed by an invalid global flag (--hostname).
+# The -R flag and its value are consumed cleanly, then --hostname triggers denial.
+run_case "T34: gh -R owner/repo --hostname x issue list (valid+invalid global flags, deny)" \
+  "deny" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh -R owner/repo --hostname x issue list"}}'
+
+# T35: gh -R owner/repo issue list → SILENT
+# Confirm known global flag -R still works correctly after the fix.
+run_case "T35: gh -R owner/repo issue list (known global flag, silent)" \
+  "silent" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh -R owner/repo issue list"}}'
+
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

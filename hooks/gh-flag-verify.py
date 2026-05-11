@@ -332,11 +332,15 @@ COMPAT: dict[tuple[str, str], dict[str, bool]] = {
 # ---------------------------------------------------------------------------
 
 
-def _skip_gh_global_flags(argv: list[str], start: int) -> int:
+def _skip_gh_global_flags(argv: list[str], start: int) -> tuple[int, str | None]:
     """Walk past gh global flags from index `start` to find the subcommand.
 
     Consumes tokens for flags that take a separate argument value
-    (e.g. `-R owner/repo`). Returns the index of the first non-flag token.
+    (e.g. `-R owner/repo`). Returns (index, bad_flag) where:
+    - index is the position of the first non-flag token (the subcommand).
+    - bad_flag is None when all pre-subcommand flags are in GH_GLOBAL_FLAGS;
+      when a `-*` token is NOT a recognized global flag, bad_flag is set to
+      that token and the caller should deny.
     """
     i = start
     while i < len(argv):
@@ -346,10 +350,14 @@ def _skip_gh_global_flags(argv: list[str], start: int) -> int:
             break
         if not tok.startswith("-"):
             break
+        # Strip `=value` suffix to get the bare flag name for lookup.
+        bare = tok.split("=", 1)[0]
+        if bare not in GH_GLOBAL_FLAGS:
+            return i, tok  # unknown pre-subcommand flag — signal denial
         i += 1
         if "=" not in tok and tok in GH_GLOBAL_FLAGS_WITH_ARG and i < len(argv):
             i += 1  # consume the value token
-    return i
+    return i, None
 
 
 def _collect_flags(
@@ -420,7 +428,16 @@ def check_gh_flags(argv: list[str]) -> tuple[bool, str]:
         return False, ""
 
     # Walk past any gh global flags to find the subcommand word.
-    sub_start = _skip_gh_global_flags(argv, 1)
+    sub_start, bad_global = _skip_gh_global_flags(argv, 1)
+    if bad_global is not None:
+        bare_bad = bad_global.split("=", 1)[0]
+        allowed_list = ", ".join(sorted(GH_GLOBAL_FLAGS))
+        reason = (
+            f"Global flag '{bare_bad}' is not a recognized gh inherited flag. "
+            f"Allowed: {allowed_list}. "
+            f"Note: --hostname and --color are not accepted by gh subcommands."
+        )
+        return True, reason
     if sub_start >= len(argv):
         return False, ""  # no subcommand present
 
