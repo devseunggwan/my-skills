@@ -853,6 +853,97 @@ positional, rejecting `<num> <body>` with `accepts 1 arg(s)`). P1
 (false-positive frequency data accumulation) remains open and gates
 the default-on flip.
 
+## PreToolUse Pre-Merge Approval Gate
+
+`hooks/pre-merge-approval-gate.py` fires on every PreToolUse(Bash) event and
+intercepts `gh pr merge` invocations. In direct interactive Claude sessions the
+gate emits `permissionDecision: "ask"` so the user sees the merge attempt and
+must approve it in the Claude Code permission UI. Background cmux-delegate
+agents (identified by `CMUX_DELEGATE=1` in their shell environment) pass
+through silently — the delegation intent from the task prompt already carries
+the authorization.
+
+### Why this exists
+
+Merge is shared-state and irreversible. A task prompt containing a
+"fire-and-forget" or "no STOP gate" directive — intended for background agents
+dispatched via `cmux-delegate` — can bleed into direct interactive sessions
+that mistakenly apply the same exemption. This hook removes the exemption
+ambiguity by making the environment variable (`CMUX_DELEGATE=1`) the sole
+signal for the background-agent path.
+
+The per-PR approval rule is already codified in the global `CLAUDE.md` (`No
+Approval Transfer Across Companion PRs` and `Pre-Merge Reporting`). This hook
+adds structural enforcement so the rule fires even when memory-based feedback
+is not retrieved.
+
+### What is blocked
+
+| Scenario | Action |
+|----------|--------|
+| Direct session (no `CMUX_DELEGATE`), any `gh pr merge` | `permissionDecision: "ask"` |
+| Background agent (`CMUX_DELEGATE=1`), any `gh pr merge` | silent pass-through |
+| Inline `env CMUX_DELEGATE=1 gh pr merge` from direct session | `ask` — inline env sets the child's env, not the hook's own env |
+| Any command with `# merge-approval:ack` marker | silent pass-through (opt-out) |
+| Non-merge gh commands (`gh pr view`, `gh pr list`, etc.) | silent pass-through |
+| `git commit -m "merge note"` (merge in message, not a gh call) | silent pass-through |
+
+### Trigger
+
+1. `tool_name == "Bash"` — non-Bash tools exit 0 silently.
+2. Tokenize with `_hook_utils.safe_tokenize` + `iter_command_starts` +
+   `strip_prefix` and scan every command segment.
+3. Any segment whose `argv[0..2] == ("gh", "pr", "merge")` triggers the check.
+4. If `CMUX_DELEGATE=1` in the hook's own process env → pass.
+5. If `# merge-approval:ack` appears anywhere in the raw command → pass.
+6. Otherwise → emit `permissionDecision: "ask"`.
+
+### Inline env limitation (known)
+
+The hook reads its **own** process environment, not the child's. An inline
+`env CMUX_DELEGATE=1 gh pr merge` prefix only sets `CMUX_DELEGATE` for the
+child `gh` process — the hook process sees no `CMUX_DELEGATE`. This is
+intentional: the only authoritative delegation signal is `CMUX_DELEGATE=1`
+set in the session's shell environment at startup (e.g. by `cmux-delegate`
+when spawning the agent workspace).
+
+### Opt-out marker
+
+Embed `# merge-approval:ack` anywhere in the command to bypass the gate for
+known-intentional invocations (mirrors the `# side-effect:ack` convention from
+`side-effect-scan.py`).
+
+```bash
+gh pr merge 1 --squash --delete-branch  # merge-approval:ack
+```
+
+Use sparingly — the marker is a deliberate assertion that the merge is exactly
+what the current step requires.
+
+### Response
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "ask",
+    "permissionDecisionReason": "gh pr merge detected in a direct interactive session..."
+  }
+}
+```
+
+### Tests
+
+```bash
+bash tests/test_pre_merge_approval_gate.sh
+```
+
+Covers 18 cases: 3 direct-session ASK paths (bare, `--merge`, `--delete-branch`),
+2 background-agent SILENT paths, opt-out marker SILENT, 3 non-merge command
+SILENT paths, 2 chained-command ASK paths, quoted-body SILENT (text mentions
+"gh pr merge" but is not executed), inline-env ASK, 2 non-Bash tool SILENT,
+malformed-JSON SILENT, empty-command SILENT.
+
 ## Multi-Platform Packaging
 
 Runtime source (`skills/`, `hooks/`, `scripts/`) is shared. Platform-specific
