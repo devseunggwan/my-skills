@@ -17,17 +17,27 @@ shell port (PR B) of a commit-flag-override hook.
 File: `hooks/verify_commit_flag.py`
 
 ```python
-# BUG: value-bearing git globals advance the token index by one,
-# letting the value token be misread as the subcommand.
-# e.g. `git -C /tmp commit --no-verify -m "msg"` → exit 0 (bypass)
+# BUG: scans global flags from index 1, advancing past each "-*" token.
+# When a value-bearing global (-C, --git-dir, --work-tree) is encountered,
+# the code advances by 1 (flag only), leaving the VALUE token (/tmp) as the
+# loop's next candidate. Since /tmp does not start with "-", the while exits
+# and /tmp is evaluated as the subcommand — it is not "commit", so the hook
+# returns False (bypass).
+# e.g. `git -C /tmp commit --no-verify -m "msg"` → return False (bypass)
+VALUE_BEARING = {"-C", "--git-dir", "--work-tree"}
+
 def is_blocked_commit(args):
     tokens = args.split()
-    i = 0
-    while i < len(tokens):
-        if tokens[i] == "commit":
-            return "--no-verify" in tokens[i:]
-        i += 1
-    return False
+    i = 1  # skip "git" itself
+    while i < len(tokens) and tokens[i].startswith("-"):
+        if tokens[i] in VALUE_BEARING:
+            i += 1  # BUG: skips only the flag; value token terminates the loop
+        else:
+            i += 1
+    # tokens[i] is expected to be the subcommand, but is actually the value (/tmp)
+    if i >= len(tokens) or tokens[i] != "commit":
+        return False
+    return "--no-verify" in tokens[i:]
 ```
 
 ### Branch B — `issue-199-hook-shell` (sibling port)
@@ -35,16 +45,31 @@ def is_blocked_commit(args):
 File: `hooks/verify_commit_flag.sh`
 
 ```bash
-# BUG: same root cause — value-bearing globals (-C <path>) advance i by one,
-# leaving the value token to be matched as a subcommand candidate.
+# BUG: same root cause as the Python version.
+# Scans from index 1; for value-bearing globals, advances by 1 (flag only).
+# The value token (/tmp) does not match "-*", so the while exits with i pointing
+# at /tmp, which is not "commit" → return 1 (bypass).
+# e.g. `git -C /tmp commit --no-verify -m "msg"` → return 1 (bypass)
+VALUE_BEARING_FLAGS=("-C" "--git-dir" "--work-tree")
+
 is_blocked_commit() {
   local args=("$@")
-  local i=0
-  while (( i < ${#args[@]} )); do
-    if [[ "${args[$i]}" == "commit" ]]; then
-      for a in "${args[@]:$i}"; do [[ "$a" == "--no-verify" ]] && return 0; done
+  local i=1  # skip "git"
+  while (( i < ${#args[@]} )) && [[ "${args[$i]}" == -* ]]; do
+    local is_value_bearing=0
+    for flag in "${VALUE_BEARING_FLAGS[@]}"; do
+      [[ "${args[$i]}" == "$flag" ]] && is_value_bearing=1 && break
+    done
+    if (( is_value_bearing )); then
+      (( i++ ))  # BUG: skips flag only; value terminates the loop
+    else
+      (( i++ ))
     fi
-    (( i++ ))
+  done
+  [[ "${args[$i]:-}" != "commit" ]] && return 1
+  local j
+  for (( j=i; j < ${#args[@]}; j++ )); do
+    [[ "${args[$j]}" == "--no-verify" ]] && return 0
   done
   return 1
 }

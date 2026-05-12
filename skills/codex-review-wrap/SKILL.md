@@ -302,6 +302,7 @@ sibling-applied: {sibling-repo}#{PR-or-branch} | round={N} | finding={brief-labe
 | `same defect` | Sibling exhibits the identical root-cause failure — sibling PR also needs the fix |
 | `different` | Sibling has a variant or no equivalent code path — no cross-fix needed |
 | `does not apply` | The finding's context (file, function, identifier) does not exist in the sibling |
+| `inaccessible` | Sibling branch/repo could not be reached locally — cross-check skipped; user warned |
 
 ##### 5d-iii. Propose sibling fix (same defect only)
 
