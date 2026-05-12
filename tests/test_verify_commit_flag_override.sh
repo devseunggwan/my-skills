@@ -159,6 +159,37 @@ run_case "P10: gh issue create with --body containing -n example" silent \
   "$(payload 'gh issue create --body "use sed -n to read lines"')"
 
 # ---------------------------------------------------------------------------
+# Value-bearing git globals before `commit` (Codex review P1 followup).
+#
+# `git -C <path> commit ...` / `git --git-dir <path> commit ...` etc.
+# The prior implementation advanced one token on any `-`-prefixed flag,
+# letting the value get misread as the subcommand and bailing out before
+# the override scan ran.
+# ---------------------------------------------------------------------------
+
+run_case "G01: git -C /tmp commit --no-verify" deny \
+  "$(payload 'git -C /tmp commit --no-verify -m "msg"')"
+
+run_case "G02: git --git-dir /tmp/foo commit -n" deny \
+  "$(payload 'git --git-dir /tmp/foo commit -n -m "msg"')"
+
+run_case "G03: git --git-dir=/tmp/foo commit --no-verify (= form)" deny \
+  "$(payload 'git --git-dir=/tmp/foo commit --no-verify -m "msg"')"
+
+run_case "G04: git --work-tree /tmp commit --no-gpg-sign" deny \
+  "$(payload 'git --work-tree /tmp commit --no-gpg-sign -m "msg"')"
+
+run_case "G05: git -C /tmp -c commit.gpgsign=false commit" deny \
+  "$(payload 'git -C /tmp -c commit.gpgsign=false commit -m "msg"')"
+
+run_case "G06: git -C /tmp commit -S (force sign)" deny \
+  "$(payload 'git -C /tmp commit -S -m "msg"')"
+
+# Sanity: value-bearing global + non-commit subcommand must NOT deny.
+run_case "G07: git -C /tmp log (not commit)" silent \
+  "$(payload 'git -C /tmp log -n 5')"
+
+# ---------------------------------------------------------------------------
 # Bypass case (PRAXIS_SKIP_COMMIT_FLAG_CHECK=1 must short-circuit to pass)
 # ---------------------------------------------------------------------------
 

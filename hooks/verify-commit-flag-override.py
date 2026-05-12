@@ -53,6 +53,22 @@ PROBLEM_CONFIG_PREFIXES: tuple[str, ...] = (
     "commit.template=",
 )
 
+# Git global options that take a value as the NEXT argv token (not `=`-joined).
+# Skipping just the flag without its value would let the value be misread as the
+# subcommand — e.g. `git -C /tmp commit -n` would treat `/tmp` as the subcommand
+# and bail out before the `commit` check, allowing the `-n` override through.
+GLOBAL_VALUE_FLAGS: frozenset[str] = frozenset(
+    {
+        "-C",
+        "--git-dir",
+        "--work-tree",
+        "--namespace",
+        "--config-env",
+        "--exec-path",
+        "--super-prefix",
+    }
+)
+
 # Token -> human-readable description (used in deny reason).
 COMMIT_FLAG_TOKENS: dict[str, str] = {
     "-n": "-n (short form of --no-verify)",
@@ -116,11 +132,21 @@ def detect_overrides(argv: list[str]) -> list[str]:
                     break
             i += 1
             continue
+        # Value-bearing global with value as the NEXT token (e.g. `-C /tmp`,
+        # `--git-dir /tmp/foo`). Skip both flag AND value, otherwise the value
+        # gets misread as the subcommand and the `commit` check below fails,
+        # allowing the override through silently (Codex review P2, PR #194).
+        if tok in GLOBAL_VALUE_FLAGS and i + 1 < len(argv):
+            i += 2
+            continue
+        # `=`-joined global (e.g. `--git-dir=/path`). Value is already attached;
+        # advance one token.
+        if tok.startswith("--") and "=" in tok:
+            i += 1
+            continue
         if tok.startswith("-"):
-            # Some other git global flag — skip it (and possibly its value).
-            # Conservative: just advance one token; if this misses a value
-            # token the worst case is a false-positive on the next token,
-            # but practical git globals before `commit` are rare.
+            # Boolean / bare-flag global (`--bare`, `--no-replace-objects`, etc.)
+            # — skip one token only.
             i += 1
             continue
         # First non-flag token: must be the subcommand.
