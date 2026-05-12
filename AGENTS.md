@@ -171,6 +171,7 @@ Design contract shared by all hooks:
 | `external-write-falsify-check` (opt-in) | PreToolUse | Warn before posting hypothesis-stage text to PR / issue / Slack / Notion; also detects author-exempt unverified identifiers in mapping tables and code blocks (issue #183) | [docs/hook/external-write-falsify-check.md](docs/hook/external-write-falsify-check.md) |
 | `commit-title-length-check` | PreToolUse | Ask when `git commit` title exceeds 50 chars (configurable via `CLAUDE_COMMIT_TITLE_MAX`) | [docs/hook/commit-title-length-check.md](docs/hook/commit-title-length-check.md) |
 | `pre-merge-approval-gate` | PreToolUse | Surface per-PR approval prompt for `gh pr merge` in direct sessions (background agents pass) | [docs/hook/pre-merge-approval-gate.md](docs/hook/pre-merge-approval-gate.md) |
+| `cross-boundary-preflight` | PreToolUse | Block heredoc body in `gh pr/issue create`; ask with four-point checklist on cross-repo `--repo` writes | [docs/hook/cross-boundary-preflight.md](docs/hook/cross-boundary-preflight.md) |
 | `session-intent` | UserPromptSubmit + PreToolUse | Gate read-intent → mutation-pivot session drift on `gh` mutating commands | [docs/hook/session-intent.md](docs/hook/session-intent.md) |
 | `trino-describe-first` | PreToolUse + PostToolUse | Require `DESCRIBE <table>` before Trino MCP query references that table | [docs/hook/trino-describe-first.md](docs/hook/trino-describe-first.md) |
 
