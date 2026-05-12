@@ -174,6 +174,7 @@ Design contract shared by all hooks:
 | `cross-boundary-preflight` | PreToolUse | Block heredoc body in `gh pr/issue create`; ask with four-point checklist on cross-repo `--repo` writes | [docs/hook/cross-boundary-preflight.md](docs/hook/cross-boundary-preflight.md) |
 | `session-intent` | UserPromptSubmit + PreToolUse | Gate read-intent → mutation-pivot session drift on `gh` mutating commands | [docs/hook/session-intent.md](docs/hook/session-intent.md) |
 | `trino-describe-first` | PreToolUse + PostToolUse | Require `DESCRIBE <table>` before Trino MCP query references that table | [docs/hook/trino-describe-first.md](docs/hook/trino-describe-first.md) |
+| `pre-edit-protected-branch-guard` | PreToolUse | Block Edit/Write/NotebookEdit on protected branches (main/dev/prod/master) when dirty and target not already in dirty diff | [docs/hook/pre-edit-protected-branch-guard.md](docs/hook/pre-edit-protected-branch-guard.md) |
 
 ### Hook ordering and precedence
 
