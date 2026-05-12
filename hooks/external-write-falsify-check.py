@@ -285,8 +285,8 @@ _VERIF_BY_CAT: dict[str, tuple[re.Pattern, ...]] = {
         re.compile(r"\bgh\s+label\s+list\b", re.IGNORECASE),
     ),
     _CAT_SCHEMA: (
-        re.compile(r"^\s*DESCRIBE\s+\w", re.IGNORECASE | re.MULTILINE),
-        re.compile(r"^\s*SHOW\s+COLUMNS\b", re.IGNORECASE | re.MULTILINE),
+        re.compile(r"\bDESCRIBE\s+\w", re.IGNORECASE),
+        re.compile(r"\bSHOW\s+COLUMNS\b", re.IGNORECASE),
     ),
 }
 
