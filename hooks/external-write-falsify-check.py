@@ -16,8 +16,15 @@ When the body contains hypothesis markers (might / could / potentially / appears
 to / is failing / 가설 / 추정), it emits a stderr advisory reminding the user
 to verify each factual claim with executed evidence before posting.
 
+Additionally, when the body contains author-exempt claim shapes (mapping table
+rows or bash code blocks with unverified identifiers) and no verification call
+(gh label list / DESCRIBE / <binary> --help) is found in the recent transcript,
+it emits a separate advisory (issue #183).
+
 Exits 0 by default — this is an advisory, not a block. Set
-`PRAXIS_EXTERNAL_WRITE_STRICT=1` to convert into a hard block (exit 2).
+`PRAXIS_EXTERNAL_WRITE_STRICT=1` to convert hypothesis-marker detection into a
+hard block (exit 2). Set `PRAXIS_AUTHOR_EXEMPT_STRICT=1` to convert author-exempt
+detection into a hard block (exit 2).
 
 Uses shlex tokenization (same approach as block-gh-state-all.py / side-effect-scan.py)
 so that pattern references inside quoted strings, echo arguments, or comments
@@ -238,6 +245,146 @@ def _has_hypothesis_marker(body: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Author-exempt claim-shape detection (issue #183)
+# ---------------------------------------------------------------------------
+# Detects unverified identifiers the agent authored itself: mapping table rows
+# with CLI flags or label names, and bash code blocks with column/table names.
+# No hypothesis hedging language is required — the pattern is structural.
+#
+# Verification is category-specific: a gh label list only clears label claims;
+# a DESCRIBE only clears schema/column claims; --help only clears flag claims.
+# Mixed bodies require matching evidence per category (Codex P2 fix).
+
+# Identifier categories — used to match identifiers against verification commands.
+_CAT_FLAG   = "flag"    # e.g. --cli-flag
+_CAT_LABEL  = "label"   # e.g. type:docs
+_CAT_SCHEMA = "schema"  # e.g. snake_col, schema.table, `backtick-id`
+
+# Markdown table data row: at least two pipe-delimited cells.
+_MD_TABLE_ROW_RE = re.compile(r"^\|(.+\|)+", re.MULTILINE)
+
+# Identifier patterns checked inside table cells (high specificity).
+_CELL_FLAG_RE    = re.compile(r"--[a-z][a-z0-9-]{1,30}")
+_CELL_LABEL_RE   = re.compile(r"\b[a-z][a-z0-9-]+:[a-z][a-z0-9][a-z0-9-]*\b")
+_CELL_BACKTICK_RE = re.compile(r"`[a-z][a-z0-9_-]{2,}`")
+
+# Bash / SQL / any language code block.
+_CODE_BLOCK_RE = re.compile(r"```\w*\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+
+# Inside code blocks: add snake_case column names and schema-qualified tables.
+_CODE_SNAKE_RE    = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z][a-z0-9]*){1,}\b")
+_CODE_QUALIFIED_RE = re.compile(r"\b[a-z][a-z0-9_]+\.[a-z][a-z0-9_]+\b")
+
+# Verification regex patterns per category.
+_VERIF_BY_CAT: dict[str, tuple[re.Pattern, ...]] = {
+    _CAT_FLAG: (
+        re.compile(r"\bgh\s+\w[\w-]*\s+(?:--help|-h)\b", re.IGNORECASE),
+        re.compile(r"\b\w[\w.-]{1,}\s+--help\b", re.IGNORECASE),
+    ),
+    _CAT_LABEL: (
+        re.compile(r"\bgh\s+label\s+list\b", re.IGNORECASE),
+    ),
+    _CAT_SCHEMA: (
+        re.compile(r"^\s*DESCRIBE\s+\w", re.IGNORECASE | re.MULTILINE),
+        re.compile(r"^\s*SHOW\s+COLUMNS\b", re.IGNORECASE | re.MULTILINE),
+    ),
+}
+
+_TRANSCRIPT_SCAN_LINES = 400
+
+
+def _is_separator_row(row: str) -> bool:
+    """True for pure separator rows like |---|:---:|---| (no data)."""
+    return bool(re.fullmatch(r"[\|\s\-:=+]+", row.strip()))
+
+
+def _extract_categorized_identifiers(body: str) -> dict[str, list[str]]:
+    """Return {category: [identifiers]} from mapping table cells and code blocks."""
+    result: dict[str, list[str]] = {_CAT_FLAG: [], _CAT_LABEL: [], _CAT_SCHEMA: []}
+
+    # Markdown table data rows
+    for m in _MD_TABLE_ROW_RE.finditer(body):
+        row = m.group(0)
+        if _is_separator_row(row):
+            continue
+        cells = [c.strip() for c in row.strip().strip("|").split("|")]
+        for cell in cells:
+            if not cell:
+                continue
+            result[_CAT_FLAG].extend(_CELL_FLAG_RE.findall(cell))
+            result[_CAT_LABEL].extend(_CELL_LABEL_RE.findall(cell))
+            result[_CAT_SCHEMA].extend(_CELL_BACKTICK_RE.findall(cell))
+
+    # Code blocks (any language tag)
+    for m in _CODE_BLOCK_RE.finditer(body):
+        block = m.group(1)
+        result[_CAT_FLAG].extend(_CELL_FLAG_RE.findall(block))
+        result[_CAT_LABEL].extend(_CELL_LABEL_RE.findall(block))
+        result[_CAT_SCHEMA].extend(_CELL_BACKTICK_RE.findall(block))
+        result[_CAT_SCHEMA].extend(_CODE_SNAKE_RE.findall(block))
+        result[_CAT_SCHEMA].extend(_CODE_QUALIFIED_RE.findall(block))
+
+    return {k: v for k, v in result.items() if v}
+
+
+def _recent_bash_commands(transcript_path: str) -> list[str]:
+    """Return recent Bash command strings from the last N transcript JSONL lines."""
+    if not transcript_path or not os.path.isfile(transcript_path):
+        return []
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return []
+
+    cmds: list[str] = []
+    for line in lines[-_TRANSCRIPT_SCAN_LINES:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        msg = entry.get("message") or {}
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        for block in (msg.get("content") or []):
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and block.get("name") == "Bash":
+                inp = block.get("input") or {}
+                cmd = inp.get("command", "") if isinstance(inp, dict) else ""
+                if isinstance(cmd, str) and cmd.strip():
+                    cmds.append(cmd)
+    return cmds
+
+
+def _unverified_identifiers(
+    categorized: dict[str, list[str]], commands: list[str]
+) -> list[str]:
+    """Return a sample of identifiers whose category has no matching verification.
+
+    Each category is checked independently — a gh label list only clears label
+    claims; a DESCRIBE only clears schema/column claims; --help only clears flag
+    claims. Returns up to 2 identifiers per unverified category.
+    """
+    unverified: list[str] = []
+    for cat, ids in categorized.items():
+        patterns = _VERIF_BY_CAT.get(cat, ())
+        cat_verified = any(
+            pat.search(cmd)
+            for cmd in commands
+            for pat in patterns
+        )
+        if not cat_verified:
+            unverified.extend(list(dict.fromkeys(ids))[:2])
+    return unverified
+
+
+# ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
 
@@ -255,6 +402,16 @@ ADVISORY_MESSAGE = (
     "hard block (exit 2).\n"
 )
 
+AUTHOR_EXEMPT_ADVISORY = (
+    "REMINDER (External-Surface Write / Author-Exempt): body contains "
+    "mapping table or code-block identifiers ({identifiers}) with no "
+    "verification call found in recent transcript.\n"
+    "Own-authored labels, columns, and flags are in scope — run "
+    "gh label list / DESCRIBE / <binary> --help before publishing.\n"
+    "Set PRAXIS_AUTHOR_EXEMPT_STRICT=1 to convert this advisory into a "
+    "hard block (exit 2).\n"
+)
+
 
 def main() -> int:
     try:
@@ -264,8 +421,10 @@ def main() -> int:
 
     tool_name = payload.get("tool_name", "") or ""
     tool_input = payload.get("tool_input", {}) or {}
+    transcript_path = payload.get("transcript_path", "") or ""
 
-    body: str | None = None
+    # --- Collect all bodies from external write surfaces ---
+    all_bodies: list[str] = []
 
     if tool_name == "Bash":
         command = tool_input.get("command", "") or ""
@@ -278,24 +437,41 @@ def main() -> int:
         for argv in iter_command_starts(tokens):
             if _is_gh_external_write(argv):
                 candidate = _extract_gh_body(argv)
-                if candidate is not None and _has_hypothesis_marker(candidate):
-                    body = candidate
-                    break
-                # No marker in this body — keep scanning later writes in the
-                # same Bash command (chained via ;, &&, ||, |, newline).
+                if candidate is not None:
+                    all_bodies.append(candidate)
     elif _is_mcp_external_write(tool_name):
-        body = _extract_mcp_body(tool_input)
-
-    if body is None:
+        mcp_body = _extract_mcp_body(tool_input)
+        if mcp_body:
+            all_bodies.append(mcp_body)
+    else:
         return 0
 
-    if not _has_hypothesis_marker(body):
+    if not all_bodies:
         return 0
 
-    sys.stderr.write(ADVISORY_MESSAGE)
-    if os.environ.get("PRAXIS_EXTERNAL_WRITE_STRICT") == "1":
-        return 2
-    return 0
+    exit_code = 0
+
+    # --- Check 1: hypothesis markers (existing behavior) ---
+    for b in all_bodies:
+        if _has_hypothesis_marker(b):
+            sys.stderr.write(ADVISORY_MESSAGE)
+            if os.environ.get("PRAXIS_EXTERNAL_WRITE_STRICT") == "1":
+                exit_code = 2
+            break
+
+    # --- Check 2: author-exempt claim-shape (issue #183) ---
+    combined = "\n".join(all_bodies)
+    categorized = _extract_categorized_identifiers(combined)
+    if categorized:
+        commands = _recent_bash_commands(transcript_path)
+        unverified = _unverified_identifiers(categorized, commands)
+        if unverified:
+            sample = ", ".join(list(dict.fromkeys(unverified))[:3])
+            sys.stderr.write(AUTHOR_EXEMPT_ADVISORY.format(identifiers=sample))
+            if os.environ.get("PRAXIS_AUTHOR_EXEMPT_STRICT") == "1":
+                exit_code = 2
+
+    return exit_code
 
 
 if __name__ == "__main__":
