@@ -75,6 +75,10 @@ COMMIT_FLAG_TOKENS: dict[str, str] = {
     "--no-verify": "--no-verify",
     "--no-gpg-sign": "--no-gpg-sign",
     "-S": "-S (force signing)",
+    # Codex review P2: bare `--gpg-sign` (no keyid) was undetected — only
+    # `--gpg-sign=<keyid>` and `-S<keyid>` were matched by the elif branches.
+    # Bare form is a complete, valid invocation, so list it explicitly.
+    "--gpg-sign": "-S (force signing)",
 }
 
 # Why each override is blocked (one line per distinct override).

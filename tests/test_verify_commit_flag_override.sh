@@ -190,6 +190,27 @@ run_case "G07: git -C /tmp log (not commit)" silent \
   "$(payload 'git -C /tmp log -n 5')"
 
 # ---------------------------------------------------------------------------
+# Bare --gpg-sign long form (Codex review P2 followup).
+#
+# Prior matching covered `-S`, `-S<keyid>` (via startswith), and
+# `--gpg-sign=<keyid>`. Bare `--gpg-sign` (no keyid attached, no separate
+# argument) fell through to allow.
+# ---------------------------------------------------------------------------
+
+run_case "S01: bare --gpg-sign" deny \
+  "$(payload 'git commit --gpg-sign -m "msg"')"
+
+run_case "S02: --gpg-sign after -m" deny \
+  "$(payload 'git commit -m "msg" --gpg-sign')"
+
+run_case "S03: --gpg-sign=DEADBEEF (keyid form, regression)" deny \
+  "$(payload 'git commit --gpg-sign=DEADBEEF -m "msg"')"
+
+# Sanity: --gpg-sign text inside message body must NOT deny.
+run_case "S04: --gpg-sign text inside -m body" silent \
+  "$(payload 'git commit -m "discuss --gpg-sign policy in docs"')"
+
+# ---------------------------------------------------------------------------
 # Bypass case (PRAXIS_SKIP_COMMIT_FLAG_CHECK=1 must short-circuit to pass)
 # ---------------------------------------------------------------------------
 
