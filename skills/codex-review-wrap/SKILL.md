@@ -6,8 +6,11 @@ description: >
   between the current shell location and the intended review target. Also enforces
   a premise verification gate before applying fact-modifying findings, with flip
   detection that halts A→B→A oscillation across rounds within the same session.
+  When the PR is a port / parallel hotfix / A/B implementation, Step 5d cross-checks
+  every fact-modifying finding against the sibling implementation and records results
+  in the session ledger.
   Triggers on "codex review", "review codex", "safe review", "/codex-review-wrap",
-  "premise verification", "flip detection".
+  "premise verification", "flip detection", "sibling defect", "sibling cross-check".
 ---
 
 # codex-review-wrap
@@ -28,7 +31,10 @@ This wrapper intercepts before Codex runs:
 After Codex returns, a second responsibility activates: every fact-modifying
 finding must pass an independent premise check before it becomes an edit, and
 the wrapper maintains a session ledger that halts same-session A→B→A flips.
-See **Step 5** for the gate.
+When the PR is a port / parallel hotfix / A/B implementation of logic in a
+sibling PR or repo, Step 5d additionally cross-checks each verified finding
+against the sibling and records the result.
+See **Step 5** for the full gate.
 
 ## When to Use
 
@@ -251,7 +257,77 @@ ledger lives in the assistant's working memory for the session only —
 flip detection is inherently same-session and does not require
 cross-session persistence.
 
-#### 5d. Record verification in the commit message
+#### 5d. Cross-check sibling implementations (when applicable)
+
+When the PR under review is a port / parallel hotfix / A/B implementation
+of logic that exists in another PR or another repo, each fact-modifying
+finding that passed Step 5b verification must additionally be tested
+against the sibling implementation.
+
+##### 5d-i. Identify sibling implementations
+
+At the **start of Step 5**, before classifying findings, surface:
+
+```
+AskUserQuestion: "이 PR이 다른 PR/레포의 port · parallel hotfix · A/B 구현체인가요?
+그렇다면 형제 구현체를 알려주세요."
+```
+
+Additionally, auto-detect sibling signals:
+
+| Signal source | Detection |
+|---|---|
+| PR body keywords | `Companion`, `Refs #N`, `Mirror of #M`, `Port of`, `Parallel` |
+| Commit message citations | References to a sibling PR number (`#N`) in the commit body |
+| `git worktree list` | Two conceptually-paired branches (e.g., same issue prefix, `*-shell` / `*-python`) |
+
+If no sibling is identified (user confirms "No", no auto-detect signal fires), skip 5d entirely.
+
+##### 5d-ii. Apply falsifiable tests to sibling
+
+For each fact-modifying finding that passed Step 5b:
+
+1. Construct the **same falsifiable test** used in 5b (identical input, invocation, or query).
+2. Apply it against the sibling implementation (sibling worktree path, sibling repo branch).
+3. Record the result in the session ledger (extends the 5c ledger format with `sibling-applied:` rows):
+
+```
+sibling-applied: {sibling-repo}#{PR-or-branch} | round={N} | finding={brief-label} | result={same defect | different | does not apply}
+```
+
+**Result semantics:**
+
+| Result | Meaning |
+|---|---|
+| `same defect` | Sibling exhibits the identical root-cause failure — sibling PR also needs the fix |
+| `different` | Sibling has a variant or no equivalent code path — no cross-fix needed |
+| `does not apply` | The finding's context (file, function, identifier) does not exist in the sibling |
+| `inaccessible` | Sibling branch/repo could not be reached locally — cross-check skipped; user warned |
+
+##### 5d-iii. Propose sibling fix (same defect only)
+
+When `result=same defect`:
+
+1. Draft the equivalent edit for the sibling PR.
+2. **Surface to the user before applying** — the sibling PR has its own approval scope separate from the current PR:
+
+```
+⚠ 형제 구현체 동일 결함 발견:
+   현재 PR: {current-repo}#{current-PR} — finding: {brief-label}
+   형제 PR:  {sibling-repo}#{sibling-PR} — 동일 결함 확인 근거: {falsifying test output}
+
+제안된 수정: {draft-edit-summary}
+형제 PR에 적용할까요? (이 PR과 별도의 승인이 필요합니다)
+```
+
+3. Record the outcome in the ledger:
+   - Applied → append `fix-applied: yes` to the `sibling-applied:` row
+   - User declined → append `fix-applied: declined` to the `sibling-applied:` row
+
+Do NOT apply any sibling edit without explicit per-PR user approval. Approval for
+the current PR does not transfer to the sibling PR.
+
+#### 5e. Record verification in the commit message
 
 When committing a fact-modifying edit, include the verification result
 as a git trailer in the commit body so future readers (and the next
@@ -279,6 +355,8 @@ can pick it up. Structural and stylistic edits do not need this trailer.
 | Resolved `codex-companion.mjs` path does not exist | Offer alternatives via `AskUserQuestion` (Step 4a) |
 | Premise check (Step 5b) disproves a finding | Skip the edit; reply to Codex with the falsifying evidence |
 | Flip detected (Step 5c) | Halt; surface both rounds to the user; do not apply either side without explicit direction |
+| Sibling identified but branch/repo not accessible locally | Skip 5d for that sibling; record `sibling-applied: ... \| result=inaccessible` in ledger; warn user to check out the branch |
+| Sibling auto-detected but user confirms "not a port" | Skip 5d entirely; no ledger entry needed |
 
 ## Example Flow
 
@@ -302,6 +380,10 @@ user selects: 1
 [Step 4] cd /Users/dev/project-wt/windmill-hub-1539
          → node {install_path}/scripts/codex-companion.mjs review
 
+[Step 5 — Sibling check] AskUserQuestion fired at start of Step 5:
+  User: "이 PR은 praxis#199 (shell 버전)의 Python port입니다."
+  → sibling identified: praxis#199 on branch issue-199-hook-shell
+
 [Step 5 — Round 1] Codex returned 3 findings:
   - F1: rename `query()` → `run_query()`           [structural — apply directly]
   - F2: change WHERE col_a = 1 → col_b = 1         [fact-modifying — verify column exists]
@@ -311,6 +393,17 @@ user selects: 1
   Verify F3: gh search issues --help → --state accepts only {open, closed}
     → apply; ledger: applied: cli.sh:L10 | round=1 | "--state all" → "--state open"
   Commit F3 with trailer:  Premise-Verified: gh search issues --help (excerpt)
+
+[Step 5d] Cross-check sibling: praxis#199 (branch issue-199-hook-shell)
+  Apply same test for F3 against sibling:
+    cd /path/to/praxis-wt/issue-199-hook-shell
+    gh search issues --help → --state accepts only {open, closed}
+    sibling hook also uses "--state all" on line 8 → same defect confirmed
+  ledger: sibling-applied: praxis#199 | round=1 | finding=F3(--state all) | result=same defect
+  ⚠ 형제 구현체 동일 결함 발견:
+     현재 PR: praxis#200 — finding: F3 (--state all)
+     형제 PR:  praxis#199 — 동일 결함 확인 근거: hook.sh:L8에서 "--state all" 사용 확인
+  → surface to user for separate approval before applying sibling fix
 
 [Step 5 — Round 2] Codex now re-suggests changing WHERE col_a = 1 → col_b = 1
   Scan ledger: rejected entry on query.sql:L42 with same A → B transition exists
@@ -326,3 +419,5 @@ user selects: 1
 - Subshell `cd` does not persist after skill execution — cwd is not mutated in the parent session
 - The Step 5 ledger is per-session only — flips that span session boundaries are not detected
 - Premise classification (5a) is heuristic; when in doubt, treat the finding as fact-modifying
+- Step 5d sibling cross-check requires the sibling branch to be locally accessible — remote-only PRs need a manual `git worktree add` before cross-check can run
+- Sibling auto-detection from `git worktree list` uses branch-name heuristics (shared prefix, `*-shell` / `*-python` suffixes) and may produce false positives on unrelated paired branches; user confirmation at 5d-i overrides the auto-detect signal
