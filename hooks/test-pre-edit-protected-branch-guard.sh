@@ -160,6 +160,18 @@ run_case "dirty+protected+custom-protected-branches → deny" deny \
   "PRAXIS_PBGUARD_TEST_STATUS=$DIRTY_STATUS" \
   "PRAXIS_PROTECTED_BRANCHES=release,stable"
 
+# Non-existent parent directory — get_repo_root must walk ancestors.
+# Uses real git repo (no TEST_REPO_ROOT override) so the ancestor-walk fix is exercised.
+# Branch and status are still overridden to avoid live-git dependency in CI.
+# CLAUDE_PLUGIN_ROOT is pointed to a dummy path so is_self_edit does not
+# classify this praxis repo path as a plugin self-edit and skip it.
+REAL_REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)"
+run_case "dirty+protected+nonexistent-parent-dir → deny (P2: ancestor-walk)" deny \
+  Edit "$REAL_REPO_ROOT/src/new_component/new_file.py" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=$DIRTY_STATUS" \
+  "CLAUDE_PLUGIN_ROOT=/nonexistent-plugin-root"
+
 # ---------------------------------------------------------------------------
 # PASS: clean working tree → no block
 # ---------------------------------------------------------------------------

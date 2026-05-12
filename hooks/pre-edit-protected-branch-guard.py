@@ -112,7 +112,15 @@ def get_repo_root(path: str) -> str | None:
     if override:
         return None if override == "NONE" else override
 
+    # Walk up to the nearest existing ancestor directory so that paths like
+    # "repo/src/new_dir/new_file.py" (where new_dir doesn't exist yet) still
+    # resolve to the repo root instead of failing-open.
     cwd = path if os.path.isdir(path) else os.path.dirname(path)
+    while cwd and not os.path.isdir(cwd):
+        parent = os.path.dirname(cwd)
+        if parent == cwd:  # reached filesystem root
+            break
+        cwd = parent
     if not cwd or not os.path.isdir(cwd):
         return None
     rc, out = _run_git(["rev-parse", "--show-toplevel"], cwd)
