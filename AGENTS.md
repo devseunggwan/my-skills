@@ -130,7 +130,7 @@ else:
 
 ## Hooks
 
-Every hook ships with full spec in `hooks/<name>.md` — design rationale,
+Every hook ships with full spec in `docs/hook/<name>.md` — design rationale,
 matrix of blocked vs. passed commands, response JSON, parsing
 guarantees, fail-safe paths, and test summary. CLAUDE.md only carries the
 index; consult the per-hook file before editing.
@@ -160,19 +160,19 @@ Design contract shared by all hooks:
 
 | Hook | Event | Purpose | Spec |
 |------|-------|---------|------|
-| `block-gh-state-all` | PreToolUse | Hard-block invalid `gh search ... --state all` flag combo | [hooks/block-gh-state-all.md](hooks/block-gh-state-all.md) |
-| `gh-flag-verify` | PreToolUse | Block `gh <subcmd>` calls with flags not in the subcommand's accepted set | [hooks/gh-flag-verify.md](hooks/gh-flag-verify.md) |
-| `side-effect-scan` | PreToolUse | Ask before commands with collateral side effects (`git commit/push`, `gh pr merge/create`, `kubectl apply`) | [hooks/side-effect-scan.md](hooks/side-effect-scan.md) |
-| `memory-hint` | PreToolUse | Surface hookable memory entries by keyword at decision-construction time (advisory, never blocks) | [hooks/memory-hint.md](hooks/memory-hint.md) |
-| `codex-review-route` | UserPromptSubmit | Warn when `/codex:review` runs in a multi-worktree repo (cwd mismatch risk) | [hooks/codex-review-route.md](hooks/codex-review-route.md) |
-| `builtin-task-postuse` | PostToolUse | Correct upstream "agent spawn" false positives on `TaskCreate` / `TaskUpdate` / etc. | [hooks/builtin-task-postuse.md](hooks/builtin-task-postuse.md) |
-| `completion-verify` | Stop | Block "done / 완료" claims without same-turn Bash verification evidence pasted into the message | [hooks/completion-verify.md](hooks/completion-verify.md) |
-| `retrospect-mix-check` | Stop | Block retrospect Stage 3 outputs that default `tool` / `workflow` / `spec-gap` findings to memory-only | [hooks/retrospect-mix-check.md](hooks/retrospect-mix-check.md) |
-| `external-write-falsify-check` (opt-in) | PreToolUse | Warn before posting hypothesis-stage text to PR / issue / Slack / Notion | [hooks/external-write-falsify-check.md](hooks/external-write-falsify-check.md) |
-| `commit-title-length-check` | PreToolUse | Ask when `git commit` title exceeds 50 chars (configurable via `CLAUDE_COMMIT_TITLE_MAX`) | [hooks/commit-title-length-check.md](hooks/commit-title-length-check.md) |
-| `pre-merge-approval-gate` | PreToolUse | Surface per-PR approval prompt for `gh pr merge` in direct sessions (background agents pass) | [hooks/pre-merge-approval-gate.md](hooks/pre-merge-approval-gate.md) |
-| `session-intent` | UserPromptSubmit + PreToolUse | Gate read-intent → mutation-pivot session drift on `gh` mutating commands | [hooks/session-intent.md](hooks/session-intent.md) |
-| `trino-describe-first` | PreToolUse + PostToolUse | Require `DESCRIBE <table>` before Trino MCP query references that table | [hooks/trino-describe-first.md](hooks/trino-describe-first.md) |
+| `block-gh-state-all` | PreToolUse | Hard-block invalid `gh search ... --state all` flag combo | [docs/hook/block-gh-state-all.md](docs/hook/block-gh-state-all.md) |
+| `gh-flag-verify` | PreToolUse | Block `gh <subcmd>` calls with flags not in the subcommand's accepted set | [docs/hook/gh-flag-verify.md](docs/hook/gh-flag-verify.md) |
+| `side-effect-scan` | PreToolUse | Ask before commands with collateral side effects (`git commit/push`, `gh pr merge/create`, `kubectl apply`) | [docs/hook/side-effect-scan.md](docs/hook/side-effect-scan.md) |
+| `memory-hint` | PreToolUse | Surface hookable memory entries by keyword at decision-construction time (advisory, never blocks) | [docs/hook/memory-hint.md](docs/hook/memory-hint.md) |
+| `codex-review-route` | UserPromptSubmit | Warn when `/codex:review` runs in a multi-worktree repo (cwd mismatch risk) | [docs/hook/codex-review-route.md](docs/hook/codex-review-route.md) |
+| `builtin-task-postuse` | PostToolUse | Correct upstream "agent spawn" false positives on `TaskCreate` / `TaskUpdate` / etc. | [docs/hook/builtin-task-postuse.md](docs/hook/builtin-task-postuse.md) |
+| `completion-verify` | Stop | Block "done / 완료" claims without same-turn Bash verification evidence pasted into the message | [docs/hook/completion-verify.md](docs/hook/completion-verify.md) |
+| `retrospect-mix-check` | Stop | Block retrospect Stage 3 outputs that default `tool` / `workflow` / `spec-gap` findings to memory-only | [docs/hook/retrospect-mix-check.md](docs/hook/retrospect-mix-check.md) |
+| `external-write-falsify-check` (opt-in) | PreToolUse | Warn before posting hypothesis-stage text to PR / issue / Slack / Notion | [docs/hook/external-write-falsify-check.md](docs/hook/external-write-falsify-check.md) |
+| `commit-title-length-check` | PreToolUse | Ask when `git commit` title exceeds 50 chars (configurable via `CLAUDE_COMMIT_TITLE_MAX`) | [docs/hook/commit-title-length-check.md](docs/hook/commit-title-length-check.md) |
+| `pre-merge-approval-gate` | PreToolUse | Surface per-PR approval prompt for `gh pr merge` in direct sessions (background agents pass) | [docs/hook/pre-merge-approval-gate.md](docs/hook/pre-merge-approval-gate.md) |
+| `session-intent` | UserPromptSubmit + PreToolUse | Gate read-intent → mutation-pivot session drift on `gh` mutating commands | [docs/hook/session-intent.md](docs/hook/session-intent.md) |
+| `trino-describe-first` | PreToolUse + PostToolUse | Require `DESCRIBE <table>` before Trino MCP query references that table | [docs/hook/trino-describe-first.md](docs/hook/trino-describe-first.md) |
 
 ### Hook ordering and precedence
 
@@ -190,7 +190,7 @@ Design contract shared by all hooks:
    (state-key naming, payload field access, exit-code semantics). See the
    `Sibling Convention Survey` rule in CLAUDE.md.
 2. Write the hook + tests under `hooks/`, register in `hooks/hooks.json`.
-3. Create `hooks/<name>.md` using an existing spec as the template
+3. Create `docs/hook/<name>.md` using an existing spec as the template
    (`Why this exists` / `What is blocked` / `Response` / `Parsing guarantees`
    / `Tests`).
 4. Add a row to the index table above.
