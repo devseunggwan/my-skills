@@ -191,6 +191,31 @@ run_case "malformed JSON → silent" \
   "silent" "advisory" \
   'not-json'
 
+# --- author-exempt: claim-shape detection (issue #183) ---
+
+# Mapping table with label name, no transcript → author-exempt advisory fires.
+# Single-line body avoids the documented safe_tokenize newline-split limitation.
+run_case "author-exempt: mapping table label, no verification (warn)" \
+  "warn" "advisory" \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 100 --body \"| type:docs | documentation |\""}}'
+
+# Mapping table with prior gh label list in transcript → advisory silent.
+AE_TRANSCRIPT=$(mktemp)
+printf '%s\n' '{"message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"t1","input":{"command":"gh label list --repo owner/repo"}}]}}' > "$AE_TRANSCRIPT"
+run_case "author-exempt: mapping table + gh label list transcript (silent)" \
+  "silent" "advisory" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh issue comment 100 --body \\\"| type:docs | documentation |\\\"\"},\"transcript_path\":\"$AE_TRANSCRIPT\"}"
+rm -f "$AE_TRANSCRIPT"
+
+# Bash code block with snake_case column name via --body-file → advisory fires.
+# Uses --body-file to bypass the safe_tokenize newline-in-quoted-string limitation.
+AE_BODY_FILE=$(mktemp)
+printf 'Schema:\n\n```sql\nSELECT user_id FROM orders\n```\n' > "$AE_BODY_FILE"
+run_case "author-exempt: bash code block column name (warn)" \
+  "warn" "advisory" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr create --body-file $AE_BODY_FILE\"}}"
+rm -f "$AE_BODY_FILE"
+
 echo ""
 echo "Result: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

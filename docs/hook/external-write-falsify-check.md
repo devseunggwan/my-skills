@@ -113,6 +113,64 @@ default-on flip — see follow-up tracking issue):
   recorded as empty, so any hypothesis content streamed via stdin is not
   scanned. Use `--body-file <real-path>` when you want the body scanned.
 
+### Author-exempt detection (issue #183)
+
+A separate advisory fires when the body contains **claim shapes** —
+mapping table rows or code blocks with unverified technical identifiers —
+and **no verification call** is found in the recent transcript.
+
+This catches the pattern: the agent authors a label vocabulary table,
+a column-list example, or a CLI flag reference without ever running
+`gh label list`, `DESCRIBE`, or `<binary> --help` first.
+
+#### What is detected
+
+| Claim shape | Identifier patterns |
+|-------------|---------------------|
+| Markdown table row (`\| … \|`) | `--cli-flag`, `type:label`, `` `backtick-id` `` |
+| Any language code block (` ``` `) | All of the above + `snake_case` column names, `schema.table` |
+
+Non-technical table cells (prose words without these patterns) do not
+trigger the check.
+
+#### Verification trail
+
+Recent Bash commands (last 400 JSONL lines of the transcript) are
+scanned for:
+
+- `gh label list` — satisfies label-name claims
+- `<binary> --help` / `gh <sub> --help` — satisfies CLI flag claims
+- `DESCRIBE <table>` / `SHOW COLUMNS` — satisfies column/table claims
+
+If any of these is found, the advisory is suppressed.
+
+#### Advisory text
+
+```text
+REMINDER (External-Surface Write / Author-Exempt): body contains
+mapping table or code-block identifiers ({identifiers}) with no
+verification call found in recent transcript.
+Own-authored labels, columns, and flags are in scope — run
+gh label list / DESCRIBE / <binary> --help before publishing.
+Set PRAXIS_AUTHOR_EXEMPT_STRICT=1 to convert this advisory into a
+hard block (exit 2).
+```
+
+Default: advisory (exit 0). Set `PRAXIS_AUTHOR_EXEMPT_STRICT=1` for
+hard block (exit 2). The `PRAXIS_EXTERNAL_WRITE_STRICT` variable
+controls only the hypothesis-marker check (Check 1).
+
+#### Known limits
+
+- Transcript reading requires `transcript_path` in the hook payload.
+  If the field is absent or the file is unreadable, the check
+  fails-open (advisory never fires for verification trail — the
+  claim-shape advisory still fires based on identifier detection only).
+- Code blocks are detected by triple-backtick delimiters with any
+  language tag. Indented code blocks (4-space) are not scanned.
+- `snake_case` detection inside code blocks may produce false positives
+  on common environment-variable names or two-word prose identifiers.
+
 ### Parsing guarantees
 
 Inherited from `_hook_utils.safe_tokenize` (same primitive as
@@ -130,7 +188,7 @@ Inherited from `_hook_utils.safe_tokenize` (same primitive as
 bash tests/test_external_write_falsify_check.sh
 ```
 
-Covers 25 cases across the warn / silent / strict-block dimensions:
+Covers 28 cases across the warn / silent / strict-block dimensions:
 `gh` write subcommands (`comment`, `create`, `edit`, `review`) with each
 body flag form (`--body`, `-b`, `--body-file`, `-F`, `--body=value`),
 MCP slack / notion writes including nested shapes (Notion
@@ -139,7 +197,9 @@ MCP slack / notion writes including nested shapes (Notion
 that property metadata (`properties.{name}.title[].text.content`) does
 not surface as body, Korean marker, verified-claim silent paths,
 non-write commands (`gh list` / `gh search`), chained Bash writes,
-strict env toggle, and malformed-JSON fail-open.
+strict env toggle, malformed-JSON fail-open, and 3 author-exempt cases
+(mapping table without verification, mapping table with transcript
+`gh label list`, bash code block with column name).
 
 ### Evidence-trail follow-up
 
