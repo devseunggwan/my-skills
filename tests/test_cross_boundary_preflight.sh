@@ -139,6 +139,36 @@ run_case_detail "issue create checklist no Caller chain item" \
   "body-file"
 
 # ---------------------------------------------------------------------------
+# F1 regression: gh issue --repo X create (--repo between object and verb)
+# ---------------------------------------------------------------------------
+
+run_case "gh issue --repo X create (F1 fix)" ask \
+  'gh issue --repo owner/repo create --title "t"'
+
+run_case "gh pr --repo X create (F1 fix)" ask \
+  'gh pr --repo devseunggwan/praxis create --title "t" --body-file /tmp/b.md'
+
+run_case "gh issue --repo X create with heredoc (F1+F2)" block \
+  'gh issue --repo owner/repo create --title "t" <<EOF'
+
+# ---------------------------------------------------------------------------
+# F2 regression: heredoc attached to preceding token without space
+# ---------------------------------------------------------------------------
+
+run_case "heredoc attached to --title value (F2 fix)" block \
+  'gh issue create --title foo<<EOF'
+
+run_case "heredoc attached with double quotes (F2 fix)" block \
+  'gh issue create --title "foo"<<EOF'
+
+run_case "heredoc attached to --body-file path (F2 fix)" block \
+  'gh issue create --body-file /tmp/body.md<<EOF'
+
+# literal << inside quoted body string — should pass
+run_case "literal << in quoted body (F2 false-positive guard)" pass \
+  'gh issue create --body "comparison: a << b is false"'
+
+# ---------------------------------------------------------------------------
 # PASS cases — no --repo, no heredoc in gh write segment
 # ---------------------------------------------------------------------------
 

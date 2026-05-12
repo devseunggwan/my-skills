@@ -69,26 +69,41 @@ Correct pattern:
 # Detection helpers
 # ---------------------------------------------------------------------------
 
-def _gh_write_subcommand(argv: list[str]) -> tuple[str, str] | None:
-    """Return (object, verb) if argv is a gh write subcommand, else None."""
-    argv = strip_prefix(argv)
-    if not argv or argv[0] != "gh":
-        return None
-    # Skip gh global flags to find the first positional subcommand token.
-    i = 1
+def _skip_flags(argv: list[str], i: int) -> int:
+    """Advance i past any flags (and their values) in argv, return new i."""
     while i < len(argv):
         tok = argv[i]
         if tok == "--":
-            i += 1
-            break
+            return i + 1
         if not tok.startswith("-"):
             break
         i += 1
         if "=" not in tok and tok in GH_GLOBAL_FLAGS_WITH_ARG and i < len(argv):
-            i += 1  # consume value token for flag-with-arg
-    if i + 1 >= len(argv):
+            i += 1  # consume value token for known flag-with-arg
+    return i
+
+
+def _gh_write_subcommand(argv: list[str]) -> tuple[str, str] | None:
+    """Return (object, verb) if argv is a gh write subcommand, else None.
+
+    Handles flags between object and verb, e.g.:
+      gh issue --repo owner/repo create   → ('issue', 'create')
+      gh --repo X issue --flag create     → ('issue', 'create')
+    """
+    argv = strip_prefix(argv)
+    if not argv or argv[0] != "gh":
         return None
-    pair = (argv[i], argv[i + 1])
+    # Skip gh-level global flags to find the object word (e.g., 'issue', 'pr').
+    i = _skip_flags(argv, 1)
+    if i >= len(argv):
+        return None
+    obj = argv[i]
+    # Skip flags between object and verb (e.g., `gh issue --repo X create`).
+    i = _skip_flags(argv, i + 1)
+    if i >= len(argv):
+        return None
+    verb = argv[i]
+    pair = (obj, verb)
     return pair if pair in GH_WRITE_SUBCOMMANDS else None
 
 
@@ -105,18 +120,45 @@ def _has_repo_flag(argv: list[str]) -> tuple[bool, str]:
 
 
 def _has_heredoc(argv: list[str]) -> bool:
-    """Return True if argv contains a << heredoc operator token.
+    """Return True if argv contains a << heredoc redirect operator.
 
-    safe_tokenize with whitespace_split=True produces '<<EOF' as a single
-    token (whitespace-split, not operator-split). We detect any token that
-    starts with '<<' within the same command segment as a gh write command.
+    Two tokenization forms handled (both invalid in gh write commands):
 
-    False-positive guard: VAR=$(cat <<EOF\\n...\\nEOF\\n)\\n gh pr create
-    patterns have the heredoc on a separate line, which safe_tokenize puts
-    in a different segment (newlines become ';' separators). The heredoc
-    token therefore does NOT appear in the gh write argv slice.
+    1. Space-separated (whitespace between command and redirect):
+         gh issue create <<EOF  →  token '<<EOF'  (starts with '<<')
+
+    2. Attached to preceding word (no space before redirect):
+         gh issue create --title foo<<EOF  →  token 'foo<<EOF'
+         Shell parses this as stdin-redirect on the command; '<<' does
+         not become part of the --title value.
+
+    False-positive guard: body content with '<<' inside quoted strings
+    (e.g. --body "comparison: a << b") tokenizes as 'comparison: a << b'
+    where '<<' is surrounded by spaces on both sides. We skip such tokens.
+
+    Separate-line guard: VAR=$(cat <<EOF\\n...\\nEOF\\n)\\ngh pr create
+    has the heredoc on a different newline, which safe_tokenize separates
+    into a different segment with a synthetic ';'. The heredoc token does
+    NOT appear in the gh write argv slice.
     """
-    return any(tok.startswith("<<") for tok in argv)
+    for tok in argv:
+        if "<<" not in tok:
+            continue
+        # Case 1: token starts with '<<' (space-separated redirect)
+        if tok.startswith("<<"):
+            return True
+        # Case 2: '<<' embedded in token without surrounding spaces
+        # (attached redirect like 'foo<<EOF').
+        # Skip occurrences that are surrounded by spaces on both sides
+        # (literal comparison operator inside a formerly-quoted string).
+        idx = tok.find("<<")
+        while idx != -1:
+            left = tok[idx - 1] if idx > 0 else ""
+            right = tok[idx + 2] if idx + 2 < len(tok) else ""
+            if not (left == " " and right == " "):
+                return True
+            idx = tok.find("<<", idx + 1)
+    return False
 
 
 # ---------------------------------------------------------------------------
