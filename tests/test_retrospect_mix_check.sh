@@ -137,7 +137,7 @@ T1_ROW="| 1 | behavioral | — | hasty conclusion | did not verify | rule absent
 run_case "T1_pass_behavior_only_with_5line_rationale" "pass" \
   "$(mk_assistant "$(mk_retrospect_stage3 "$T1_CARD" "$T1_ROW")")"
 
-# T2: pass — tool finding escalated to upstream_feedback
+# T2: pass — tool finding escalated to upstream_feedback with backing_repo declared
 T2_CARD=$(cat <<EOF
 - memory: 0
 - issue: 0
@@ -149,7 +149,7 @@ T2_CARD=$(cat <<EOF
 - gate_2_verdict: NA
 EOF
 )
-T2_ROW="| 1 | tool | cli | gh CLI flag missing | flag undocumented | gap | No | upstream_feedback | tool defect — upstream issue needed | HIGH |"
+T2_ROW="| 1 | tool | cli | gh CLI flag missing | flag undocumented | gap | No | upstream_feedback | tool defect — upstream issue needed<br>backing_repo: devseunggwan/praxis | HIGH |"
 run_case "T2_pass_escalated_tool_finding" "pass" \
   "$(mk_assistant "$(mk_retrospect_stage3 "$T2_CARD" "$T2_ROW")")"
 
@@ -571,6 +571,56 @@ TXTEOF
 )
 run_case "T26_pass_retrospect_inside_fenced_code" "pass" \
   "$(mk_assistant "$T26_TEXT")"
+
+# Gate-3 (backing_repo) cases ------------------------------------------------
+
+# T27: pass — upstream_feedback row with backing_repo declared
+T27_CARD=$(cat <<EOF
+- memory: 0
+- issue: 0
+- claude_md_draft: 0
+- skill_idea: 0
+- hook_code: 0
+- upstream_feedback: 1
+- gate_1_verdict: PASS
+- gate_2_verdict: NA
+EOF
+)
+T27_ROW="| 1 | tool | mcp | slow MCP call | latency | gap | No | upstream_feedback | latency defect in tool<br>backing_repo: owner/some-tool | HIGH |"
+run_case "T27_pass_upstream_feedback_with_backing_repo" "pass" \
+  "$(mk_assistant "$(mk_retrospect_stage3 "$T27_CARD" "$T27_ROW")")"
+
+# T28: block — issue row missing backing_repo declaration (Gate-3)
+T28_CARD=$(cat <<EOF
+- memory: 0
+- issue: 1
+- claude_md_draft: 0
+- skill_idea: 0
+- hook_code: 0
+- upstream_feedback: 0
+- gate_1_verdict: NA
+- gate_2_verdict: NA
+EOF
+)
+T28_ROW="| 1 | behavioral | — | repeat pattern | structural | gap | Yes | issue | systemic fix needed | HIGH |"
+run_case "T28_block_issue_row_missing_backing_repo" "block" \
+  "$(mk_assistant "$(mk_retrospect_stage3 "$T28_CARD" "$T28_ROW")")"
+
+# T29: pass — row with claude_md_draft (not upstream_feedback/issue), no backing_repo needed
+T29_CARD=$(cat <<EOF
+- memory: 0
+- issue: 0
+- claude_md_draft: 1
+- skill_idea: 0
+- hook_code: 0
+- upstream_feedback: 0
+- gate_1_verdict: NA
+- gate_2_verdict: NA
+EOF
+)
+T29_ROW="| 1 | spec-gap | — | rule absent | missing rule | gap | No | claude_md_draft | rule gap detected | MED |"
+run_case "T29_pass_non_routed_action_no_backing_repo_needed" "pass" \
+  "$(mk_assistant "$(mk_retrospect_stage3 "$T29_CARD" "$T29_ROW")")"
 
 # Synthetic regression fixtures (AC-R1~R4) ----------------------------------
 # Each fixture pairs a .jsonl transcript with a .expected.json sidecar:

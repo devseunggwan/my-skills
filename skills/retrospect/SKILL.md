@@ -633,6 +633,7 @@ If you catch yourself:
 - **Stage 4 Action 4에서 step 0 (declared vs re-resolved 비교)을 건너뛰고 바로 `gh issue create` 실행** — 이슈가 잘못된 레포로 라우팅되는 정확한 실패 경로. 선언과 재계산 값을 모두 기록하지 않은 채 진행하면 retrospect 자체가 검증 불가.
 - **`Proposed Actions` count = 2 인데 두 action 이 decision-coupled (한 쪽이 다른 쪽이 묻는 질문을 이미 결정)** — Gate-3 (b) 위반. 둘 다 실행하면 상호 모순 상태가 만들어지며, `upstream_feedback` 측이 외부 레포에 빈 질문을 남기는 노이즈가 발생한다. 강한 evidence 쪽을 유지하고 약한 쪽은 trigger condition으로 강등.
 - **2-action finding 의 각 action 이 ≥1 friction-event observation 을 인용하지 않음** — Gate-3 (a) 위반. Category-default form-filling만으로 만들어진 action 은 evidence-based delivery 원칙과 충돌하며, 첫 번째 action 이 이미 수행한 결정을 두 번째가 반복-질문하는 redundancy 의 전형적 신호.
+- **Surfacing an option as `(Recommended)` or default without running a disconfirming test on the recommendation's own premise** — premise verification at HIGH-confidence lock is mandatory. The user's push-back is a trailing signal; pre-emptive self-falsification is the correct path. (Pairs with the upstream `Falsify Before Fix` global rule.)
 
 **ALL of these mean: STOP. Return to Stage 2.**
 

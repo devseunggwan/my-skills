@@ -118,6 +118,7 @@ TABLE_LINES=$(printf '%s\n' "$MOST_RECENT_BLOCK" | awk '
 # Walk data rows (skip header + separator).
 declare -a GATE1_VIOLATIONS=()
 declare -a GATE2_VIOLATIONS=()
+declare -a GATE3_VIOLATIONS=()
 declare -a SHORT_ROW_VIOLATIONS=()
 ROW_INDEX=0
 PIPE_SENTINEL=$'\x01PIPE\x01'
@@ -199,6 +200,22 @@ while IFS= read -r row; do
       GATE2_VIOLATIONS+=("finding #${finding_num}: memory-only row but Rationale has ${matches}/5 'not <action>: <reason>' lines")
     fi
   fi
+
+  # Gate-3 (backing_repo): rows whose Proposed Actions contain upstream_feedback
+  # or issue MUST declare backing_repo: <owner/repo> in the Rationale cell.
+  # Stage 2 step 8 documents this as MUST; Stage 4 Action 4 step 0 aborts on absence.
+  has_routed_action=false
+  for tok in "${unique_actions[@]}"; do
+    case "$tok" in
+      upstream_feedback|issue) has_routed_action=true; break ;;
+    esac
+  done
+  if [ "$has_routed_action" = "true" ]; then
+    normalized_r3=$(printf '%s' "$rationale" | sed 's/<br *\/*>/\n/g')
+    if ! printf '%s\n' "$normalized_r3" | grep -qE '^[[:space:]]*backing_repo: [A-Za-z0-9_][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*'; then
+      GATE3_VIOLATIONS+=("finding #${finding_num}: Proposed Actions contains upstream_feedback or issue but Rationale missing backing_repo: <owner/repo> — return to Stage 2 step 8")
+    fi
+  fi
 done <<< "$TABLE_LINES"
 
 # Decide block.
@@ -229,6 +246,12 @@ if [ "${#GATE2_VIOLATIONS[@]}" -gt 0 ]; then
     reason_parts+=("Gate-2: $v")
   done
 fi
+if [ "${#GATE3_VIOLATIONS[@]}" -gt 0 ]; then
+  should_block=true
+  for v in "${GATE3_VIOLATIONS[@]}"; do
+    reason_parts+=("Gate-3: $v")
+  done
+fi
 if [ "${#SHORT_ROW_VIOLATIONS[@]}" -gt 0 ]; then
   should_block=true
   for v in "${SHORT_ROW_VIOLATIONS[@]}"; do
@@ -250,7 +273,7 @@ if [ "$should_block" = "true" ]; then
     fi
   done
 
-  full_reason="Retrospect memory-bias gate triggered. ${reason}. Re-run Stage 2.5 audit: relabel findings (Gate-1) or supply 5-line 'not <action>: <reason>' rationale (Gate-2). See skills/retrospect/SKILL.md Stage 2.5."
+  full_reason="Retrospect mix-check gate triggered. ${reason}. Fix guide: Gate-1 → relabel finding category; Gate-2 → supply 5-line 'not <action>: <reason>' rationale (Stage 2.5); Gate-3 → return to Stage 2 step 8 and add 'backing_repo: <owner/repo>' to Rationale cell. See skills/retrospect/SKILL.md."
   jq -n --arg r "$full_reason" '{decision: "block", reason: $r}'
   exit 0
 fi
