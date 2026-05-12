@@ -40,6 +40,7 @@ of the following hold:
 | `gate_1_verdict` or `gate_2_verdict` key missing | Distribution card is malformed or Stage 2.5 was skipped |
 | Any row with `Category` ∈ {tool, workflow, spec-gap} AND `Proposed Actions = memory` (single) | Gate-1 violation detected via independent table parse |
 | Any row with `Proposed Actions = memory` (single) whose `Rationale` lacks exactly 5 lines `^not (issue\|claude_md_draft\|skill_idea\|hook_code\|upstream_feedback): .+$` | Gate-2 violation detected via independent table parse |
+| Any row with `Proposed Actions` containing `upstream_feedback` or `issue` whose `Rationale` lacks a `backing_repo: <owner/repo>` declaration | Gate-3 (backing_repo) violation — Stage 2 step 8 requires this declaration for routing; Stage 4 Action 4 step 0 aborts on absence |
 
 ### What is NOT blocked (pass-through)
 
@@ -47,6 +48,7 @@ of the following hold:
 - Retrospect outputs at Stage 4 (`## Actions Executed` present in most-recent block)
 - `behavioral`-only findings with valid 5-line rationales — legitimately memory-only
 - Compound actions like `memory, skill_idea` — Gate-2 only checks single `memory`
+- Rows whose `Proposed Actions` contain neither `upstream_feedback` nor `issue` — Gate-3 does not apply
 
 ### Trigger condition summary
 
@@ -101,7 +103,7 @@ git -C ~/.claude/plugins/.../praxis apply --reverse <patch>
 
 ### Tests
 
-`tests/test_retrospect_mix_check.sh` covers 26 cases plus 4 synthetic
+`tests/test_retrospect_mix_check.sh` covers 29 cases plus 4 synthetic
 regression fixtures (AC-R1~R4):
 
 - 4 pass scenarios (behavior-only with rationale, escalated tool, escalated
@@ -116,6 +118,9 @@ regression fixtures (AC-R1~R4):
 - 5 hardening (T22 escaped pipe in cell, T23 short row schema violation,
   T24 degenerate `memory, memory`, T25 dual-card last-wins, T26 retrospect
   inside fenced code block)
+- 3 Gate-3 (T27 upstream_feedback with backing_repo → pass, T28 issue
+  row missing backing_repo → block, T29 non-routed action no backing_repo
+  needed → pass)
 
 Fixtures live in `tests/fixtures/retrospect-synth-{tool,workflow,behavior,
 mixed}.jsonl` with `.expected.json` sidecars (`{expected_decision,
