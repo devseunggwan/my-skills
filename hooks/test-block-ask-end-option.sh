@@ -230,21 +230,23 @@ print(json.dumps({
 }))')
 run_case "questions with non-list options → pass" pass default "$P15"
 
-# missing transcript_path: end marker present, no signal → block (default strict)
+# missing transcript_path: per project hook design contract, unreadable
+# transcripts MUST fail open — the strict-mode flip cannot retroactively
+# block on an unverifiable stop-signal check.
 T16=$(build_transcript "")
 P16=$(build_payload "/nonexistent/path-$$.jsonl" '["Plan A", "End here"]')
-run_case "missing transcript file + end marker → block (default strict)" block default "$P16"
+run_case "missing transcript file + end marker → pass (fail-open)" pass default "$P16"
 
 # ---------------------------------------------------------------------------
 # (g) Multi-question payload — marker in any question triggers advisory
 # ---------------------------------------------------------------------------
 
 T17=$(build_transcript "Just continue")
-P17=$(python3 - <<'PY'
+P17=$(python3 - <<PY
 import json
 print(json.dumps({
     "session_id": "test-session",
-    "transcript_path": "/tmp/nonexistent.jsonl",
+    "transcript_path": "$T17",
     "tool_name": "AskUserQuestion",
     "tool_input": {
         "questions": [

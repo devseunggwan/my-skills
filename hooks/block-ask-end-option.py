@@ -160,13 +160,14 @@ def _has_end_marker(labels: list[str]) -> bool:
     return False
 
 
-def _read_last_user_message(transcript_path: str) -> str:
+def _read_last_user_message(transcript_path: str) -> str | None:
     """Return the text of the most recent user-authored message in the transcript.
 
-    Returns empty string if the file is missing, unreadable, or contains
-    no user messages with extractable human text. The hook is advisory by
-    default so silent failure here just means the stop-signal check is
-    skipped — no false block.
+    Returns None when the transcript is missing or unreadable — the caller
+    must fail open per the project hook design contract (`Fail-open on
+    infrastructure errors`). Returns empty string when the transcript was
+    read successfully but no user message contained extractable human
+    text — that is a real "no stop-signal" answer and may be acted on.
 
     Transcript format: JSONL where each line is a JSON object with at
     least `type` ('user' / 'assistant' / 'system') and either `message`
@@ -184,12 +185,12 @@ def _read_last_user_message(transcript_path: str) -> str:
     message earlier in the transcript did signal stop.
     """
     if not transcript_path or not os.path.isfile(transcript_path):
-        return ""
+        return None
     try:
         with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
     except OSError:
-        return ""
+        return None
 
     # Walk in reverse to find the most recent user-role entry whose
     # content includes human-authored text. tool_result-only entries are
@@ -360,6 +361,10 @@ def main() -> int:
 
     transcript_path = payload.get("transcript_path") or ""
     user_message = _read_last_user_message(transcript_path)
+    if user_message is None:
+        # Fail open per project hook design contract — transcript missing
+        # or unreadable, cannot verify stop-signal absence.
+        return 0
     if _has_stop_signal(user_message):
         return 0
 
