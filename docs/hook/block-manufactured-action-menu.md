@@ -91,9 +91,24 @@ Legitimate cases that survive the hook even with a command signal:
 - Multiple real alternatives with meaningful trade-offs (not just "proceed" vs "cancel")
 - Destructive / irreversible actions requiring explicit confirmation
 
-For these cases the advisory mode will warn but not block; the designer should
-ensure options present substantive decision information rather than a bare
-continuation marker.
+#### Destructive-confirmation exception (automatic, even in strict mode)
+
+When ANY option label contains a destructive / irreversible action token,
+the hook passes regardless of mode. The user's prior generic command does
+not absorb per-action approval for shared-state mutations — surfacing a
+confirmation menu is required by the project CLAUDE.md
+"Pre-Merge Reporting" + "Executing actions with care" rules.
+
+Detected destructive tokens in option labels:
+
+- Korean: `머지`, `푸시`, `삭제`, `지우`, `드롭`, `초기화`, `force`, `프로덕션`
+- English: `merge`, `push`, `delete`, `drop`, `truncate`, `force`,
+  `prod`, `production`, `destroy`
+
+For other legitimate cases (substantive alternatives, less obvious
+destructive contexts) the advisory mode will warn but not block; the
+designer should ensure options present substantive decision information
+rather than a bare continuation marker.
 
 ### Response
 

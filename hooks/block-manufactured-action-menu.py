@@ -79,6 +79,36 @@ COMMAND_SIGNALS_EN_TOKENS = (
     "push",
 )
 
+# Destructive-confirmation labels — option labels that name an irreversible
+# / shared-state action (merge, push, delete, drop, prod write, force).
+# When ANY option label contains one of these tokens, the menu is treated
+# as a legitimate confirmation gate even in strict mode: per the project
+# CLAUDE.md "Pre-Merge Reporting" + "Executing actions with care" rules,
+# destructive actions require explicit per-action confirmation that the
+# user's prior command alone does not absorb. Surfacing such a menu is
+# justified, not manufactured.
+DESTRUCTIVE_LABEL_TOKENS_KO = (
+    "머지",
+    "푸시",
+    "삭제",
+    "지우",
+    "드롭",
+    "초기화",
+    "force",
+    "프로덕션",
+)
+DESTRUCTIVE_LABEL_TOKENS_EN = (
+    "merge",
+    "push",
+    "delete",
+    "drop",
+    "truncate",
+    "force",
+    "prod",
+    "production",
+    "destroy",
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -204,6 +234,28 @@ def _read_last_user_message(transcript_path: str) -> str | None:
     return ""
 
 
+def _has_destructive_label(labels: list[str]) -> bool:
+    """True if any option label names a destructive / irreversible action.
+
+    Per the project CLAUDE.md rules (Pre-Merge Reporting, "Executing
+    actions with care"), destructive actions need explicit per-action
+    confirmation that a prior generic command does not absorb. When the
+    menu contains such a label, treat it as a legitimate confirmation
+    gate even when other markers and a command signal coexist.
+    """
+    if not labels:
+        return False
+    for label in labels:
+        lower = label.lower()
+        for token in DESTRUCTIVE_LABEL_TOKENS_KO:
+            if token in label or token.lower() in lower:
+                return True
+        for token in DESTRUCTIVE_LABEL_TOKENS_EN:
+            if token.lower() in lower:
+                return True
+    return False
+
+
 def _has_command_signal(user_message: str) -> bool:
     """True if the user message contains a command-intent directive.
 
@@ -301,6 +353,15 @@ def main() -> int:
     if not _has_command_signal(user_message):
         # No command-intent in prior message — manufactured menu may be
         # legitimate (first interaction, genuine multiple-choice). Pass.
+        return 0
+
+    # Destructive-confirmation exception — even in strict mode, a menu
+    # whose options name a destructive / irreversible action (merge, push,
+    # delete, prod write, force) is a legitimate confirmation gate and
+    # must not be blocked. The user's prior generic command does not
+    # absorb per-action approval for shared-state mutations (see project
+    # CLAUDE.md "Pre-Merge Reporting" + "Executing actions with care").
+    if _has_destructive_label(labels):
         return 0
 
     # Mode resolution.

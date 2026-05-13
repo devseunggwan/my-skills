@@ -131,7 +131,9 @@ run_case "korean command + 계속할까요 → advisory" advisory default "$P3"
 
 T4=$(build_transcript "merge it now")
 P4=$(build_payload "$T4" '["Plan A", "머지할까요"]')
-run_case "english merge command + 머지할까요 → advisory" advisory default "$P4"
+# Destructive label "머지할까요" triggers the destructive-confirmation
+# exception even though command + manufactured marker both match.
+run_case "english merge command + 머지할까요 → pass (destructive-exempt)" pass default "$P4"
 
 T5=$(build_transcript "proceed with the implementation")
 P5=$(build_payload "$T5" '["Plan A", "go ahead"]')
@@ -143,7 +145,9 @@ run_case "'continue' command + 'continue' marker → advisory" advisory default 
 
 T7=$(build_transcript "push the changes")
 P7=$(build_payload "$T7" '["Plan A", "push할까요"]')
-run_case "push command + push할까요 → advisory" advisory default "$P7"
+# Destructive label "push할까요" triggers the destructive-confirmation
+# exception even though command + manufactured marker both match.
+run_case "push command + push할까요 → pass (destructive-exempt)" pass default "$P7"
 
 T8=$(build_transcript "다음 액션 진행해")
 P8=$(build_payload "$T8" '["Step 1", "다음 액션"]')
@@ -330,6 +334,39 @@ print(json.dumps({
 PY
 )
 run_case "multi-question payload, marker in second question + command signal → advisory" advisory default "$P_mq1"
+
+# ---------------------------------------------------------------------------
+# (e) Destructive-confirmation exception — strict mode must pass when any
+#     option label names a destructive / irreversible action (merge, push,
+#     delete, drop, prod, force). The user's prior command does not absorb
+#     per-action approval for shared-state mutations.
+# ---------------------------------------------------------------------------
+
+T_de1=$(build_transcript "머지해줘")
+P_de1=$(build_payload "$T_de1" '["진행할까요", "머지할까요"]')
+run_case "[destructive-exempt-KO] '머지할까요' label + cmd + strict → pass" pass strict "$P_de1"
+
+T_de2=$(build_transcript "push the changes")
+P_de2=$(build_payload "$T_de2" '["proceed", "push to main"]')
+run_case "[destructive-exempt-EN] 'push to main' label + cmd + strict → pass" pass strict "$P_de2"
+
+T_de3=$(build_transcript "삭제 진행")
+P_de3=$(build_payload "$T_de3" '["진행할까요", "데이터 삭제 확정"]')
+run_case "[destructive-exempt-KO] '삭제' label + cmd + strict → pass" pass strict "$P_de3"
+
+T_de4=$(build_transcript "go ahead")
+P_de4=$(build_payload "$T_de4" '["proceed", "force-push the rebase"]')
+run_case "[destructive-exempt-EN] 'force-push' label + cmd + strict → pass" pass strict "$P_de4"
+
+T_de5=$(build_transcript "prod 배포")
+P_de5=$(build_payload "$T_de5" '["proceed", "prod deploy 확정"]')
+run_case "[destructive-exempt-EN] 'prod' label + cmd + strict → pass" pass strict "$P_de5"
+
+# Advisory mode also passes for destructive labels — the exception applies
+# at the marker stage, before mode resolution.
+T_de6=$(build_transcript "머지해줘")
+P_de6=$(build_payload "$T_de6" '["진행할까요", "머지할까요"]')
+run_case "[destructive-exempt-KO] '머지할까요' label + cmd + advisory → pass" pass default "$P_de6"
 
 # ---------------------------------------------------------------------------
 # Summary
