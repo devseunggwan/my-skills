@@ -2,9 +2,9 @@
 """PreToolUse(AskUserQuestion) guard: warn on mechanical end-option surfacing.
 
 When AskUserQuestion is invoked with `options` whose labels match end-option
-markers (e.g. "여기서 종료", "session end", "stop here"), check the most
-recent user message in the transcript for an explicit stop signal. If no
-signal is present, emit a stderr advisory pointing to the rule.
+markers (e.g. "여기서 종료", "session end", "stop here", "take a break"),
+check the most recent user message in the transcript for an explicit stop
+signal. If no signal is present, emit a stderr block (strict by default).
 
 Background:
   Skill guides authoring "Step N: chaining" sections frequently include an
@@ -14,18 +14,27 @@ Background:
   has been observed 6+ times in a single session, fragmenting decisions
   and ignoring user intent.
 
+  Indirect phrasing ("take a break", "pause for now", "다른 작업 우선") is
+  used as a bypass when direct keywords are detected — this hook catches
+  both direct and indirect patterns.
+
   Text rules in CLAUDE.md or skill bodies alone cannot enforce this — the
   `loaded != retrieved` limit. This hook enforces the rule at the tool
   boundary, where the check runs mechanically regardless of retrieval state.
 
-Default mode: advisory (exit 0 + stderr).
-Strict mode: PRAXIS_ASK_END_STRICT=1 → block (exit 2 + stderr).
+Default mode: strict (exit 2 + stderr).
+Advisory mode (opt-out): PRAXIS_ASK_END_ADVISORY=1 → exit 0 + stderr.
 
-Allow conditions (no advisory emitted):
+Deprecated: PRAXIS_ASK_END_STRICT=1 is still respected when explicitly set
+  but superseded by the new default-strict behavior. If both env vars are
+  set, PRAXIS_ASK_END_STRICT=1 forces strict; PRAXIS_ASK_END_ADVISORY=1
+  forces advisory. PRAXIS_ASK_END_STRICT takes precedence.
+
+Allow conditions (no block/advisory emitted):
   1. tool_name != "AskUserQuestion"
   2. No options match any end marker
   3. Most recent user message contains an explicit stop signal
-  4. transcript_path is missing or unreadable (graceful degrade — advisory
+  4. transcript_path is missing or unreadable (graceful degrade — block
      is suppressed to avoid noise when transcript inspection is impossible)
 """
 from __future__ import annotations
@@ -40,11 +49,19 @@ import sys
 
 # End-option markers in option labels. Case-insensitive.
 # Korean entries are unicode literals; English entries cover common phrasings.
+# Direct markers: explicit end/stop/session-termination language.
 END_OPTION_MARKERS_KO = (
     "여기서 종료",
     "세션 종료",
     "여기서 끝",
     "여기까지",
+    # Indirect Korean: pause / break / defer / other-work framing
+    "잠시 멈춰",
+    "잠시 보류",
+    "휴식",
+    "다른 작업 우선",
+    "다음 세션",
+    "보류",
 )
 END_OPTION_MARKERS_EN = (
     "end here",
@@ -52,6 +69,12 @@ END_OPTION_MARKERS_EN = (
     "stop here",
     "end the session",
     "wrap up here",
+    # Indirect English: pause / break / defer / other-work framing
+    "take a break",
+    "prioritize other work",
+    "pause for now",
+    "resume in a later session",
+    "other work first",
 )
 
 # Stop signals in the most recent user message. Case-insensitive.
@@ -281,31 +304,38 @@ def _has_negation(prefix: str) -> bool:
 # ---------------------------------------------------------------------------
 
 ADVISORY_MSG = """\
-[advisory] AskUserQuestion includes an end-option ("end here" / "여기서 종료" type)
+[advisory] AskUserQuestion includes an end-option ("end here" / "take a break" / "여기서 종료" type)
 but the most recent user message has no stop signal.
 
-Mechanical surfacing of "end here" options propagates from skill-guide
-boilerplate even when conversation context has a chained intent. Verify
-that the user actually wants a stop point before this surface — or remove
-the end option.
+Mechanical surfacing of end-options propagates from skill-guide boilerplate
+even when conversation context has a chained intent. Indirect phrasing
+("take a break", "pause for now", "다른 작업 우선") is also detected.
+Verify that the user actually wants a stop point before this surface —
+or remove the end option.
 
-Set PRAXIS_ASK_END_STRICT=1 to escalate this advisory to a hard block.
+Advisory mode is active (PRAXIS_ASK_END_ADVISORY=1). Remove this env var
+to restore the default strict block behavior.
 """
 
 BLOCK_MSG = """\
 ❌ BLOCKED: AskUserQuestion includes an end-option without user stop signal.
 
-Markers detected in options[].label: "end here" / "session end" / "여기서 종료" type.
+Markers detected in options[].label:
+  Direct: "end here" / "session end" / "여기서 종료" type
+  Indirect: "take a break" / "pause for now" / "다른 작업 우선" type
+
 Most recent user message contains no stop signal (stop, end, quit, done,
 cancel, finish, 종료, 여기까지, 그만, 마무리, etc.).
 
 Why:
   Skill-guide "end here" boilerplate is being mechanically transcribed
   into AskUserQuestion call sites where the conversation has a chained
-  intent. Remove the end-option, or wait for the user to express a
+  intent. Indirect phrasing is used as a bypass when direct keywords are
+  detected. Remove the end-option, or wait for the user to express a
   stop signal explicitly.
 
-Unset PRAXIS_ASK_END_STRICT to demote this to an advisory.
+To opt out: set PRAXIS_ASK_END_ADVISORY=1 (demotes to advisory).
+Note: PRAXIS_ASK_END_STRICT=1 (deprecated) also forces strict when set.
 """
 
 
@@ -333,8 +363,16 @@ def main() -> int:
     if _has_stop_signal(user_message):
         return 0
 
-    strict = os.environ.get("PRAXIS_ASK_END_STRICT", "") not in ("", "0", "false", "False")
-    if strict:
+    # Mode resolution (precedence: STRICT > ADVISORY > default-strict).
+    # PRAXIS_ASK_END_STRICT=1 is deprecated but still honoured when explicitly set.
+    strict_env = os.environ.get("PRAXIS_ASK_END_STRICT", "")
+    advisory_env = os.environ.get("PRAXIS_ASK_END_ADVISORY", "")
+    strict_set = strict_env not in ("", "0", "false", "False")
+    advisory_set = advisory_env not in ("", "0", "false", "False")
+
+    # PRAXIS_ASK_END_STRICT takes precedence; otherwise default is strict
+    # unless PRAXIS_ASK_END_ADVISORY=1 explicitly opts out.
+    if strict_set or not advisory_set:
         sys.stderr.write(BLOCK_MSG)
         return 2
 

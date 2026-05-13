@@ -2,16 +2,16 @@
 # test-block-ask-end-option.sh — coverage for the AskUserQuestion end-option gate
 #
 # Synthesizes Claude Code PreToolUse(AskUserQuestion) payloads and asserts:
-#   advisory → exit 0 + stderr non-empty
-#   block    → exit 2 + stderr non-empty (PRAXIS_ASK_END_STRICT=1)
+#   advisory → exit 0 + stderr non-empty  (PRAXIS_ASK_END_ADVISORY=1 opt-out)
+#   block    → exit 2 + stderr non-empty  (default, or PRAXIS_ASK_END_STRICT=1)
 #   pass     → exit 0 + stderr empty
 #
 # Usage: bash hooks/test-block-ask-end-option.sh
 # Exit:  0 = all pass; 1 = at least one fail
 #
-# Hook is advisory by default — most "end-marker present + no stop signal"
-# cases expect exit 0 + non-empty stderr. Strict cases (with
-# PRAXIS_ASK_END_STRICT=1) expect exit 2.
+# Hook is STRICT by default — most "end-marker present + no stop signal"
+# cases expect exit 2 + non-empty stderr. Advisory cases (with
+# PRAXIS_ASK_END_ADVISORY=1) expect exit 0 + non-empty stderr.
 
 set +e
 
@@ -72,15 +72,24 @@ PY
 }
 
 run_case() {
-  local name="$1" expected="$2" strict="$3" payload="$4"
+  local name="$1" expected="$2" mode="$3" payload="$4"
   local err_file rc
 
   err_file=$(mktemp)
-  if [ "$strict" = "strict" ]; then
-    echo "$payload" | PRAXIS_ASK_END_STRICT=1 "$HOOK" >/dev/null 2>"$err_file"
-  else
-    echo "$payload" | "$HOOK" >/dev/null 2>"$err_file"
-  fi
+  case "$mode" in
+    strict)
+      # Explicit legacy strict env var (deprecated but still honoured).
+      echo "$payload" | PRAXIS_ASK_END_STRICT=1 "$HOOK" >/dev/null 2>"$err_file"
+      ;;
+    advisory)
+      # Opt-out to advisory via new env var.
+      echo "$payload" | PRAXIS_ASK_END_ADVISORY=1 "$HOOK" >/dev/null 2>"$err_file"
+      ;;
+    default|*)
+      # Default is now strict — no env var override.
+      echo "$payload" | "$HOOK" >/dev/null 2>"$err_file"
+      ;;
+  esac
   rc=$?
   local err_content
   err_content=$(cat "$err_file"); rm -f "$err_file"
@@ -111,32 +120,44 @@ run_case() {
 }
 
 # ---------------------------------------------------------------------------
-# (a) ADVISORY cases — default mode, end marker present, no stop signal
+# (a) BLOCK cases — default mode (strict), end marker present, no stop signal
 # ---------------------------------------------------------------------------
 
 T1=$(build_transcript "Continue with the next step")
 P1=$(build_payload "$T1" '["Plan A", "Plan B", "여기서 종료"]')
-run_case "korean end marker, neutral user message" advisory default "$P1"
+run_case "korean end marker, neutral user message" block default "$P1"
 
 T2=$(build_transcript "What about option B?")
 P2=$(build_payload "$T2" '["Implement", "Review", "End here"]')
-run_case "english end marker, neutral user message" advisory default "$P2"
+run_case "english end marker, neutral user message" block default "$P2"
 
 T3=$(build_transcript "다음 단계 진행해주세요")
 P3=$(build_payload "$T3" '["Step 1", "Step 2", "세션 종료"]')
-run_case "korean continuation, korean end marker" advisory default "$P3"
+run_case "korean continuation, korean end marker" block default "$P3"
 
 # ---------------------------------------------------------------------------
-# (b) BLOCK cases — strict mode, end marker present, no stop signal
+# (b) BLOCK cases — explicit strict env var (deprecated, still honoured)
 # ---------------------------------------------------------------------------
 
 T4=$(build_transcript "Continue please")
 P4=$(build_payload "$T4" '["Plan A", "여기서 종료"]')
-run_case "strict mode + end marker + no signal → block" block strict "$P4"
+run_case "explicit strict env + end marker + no signal → block" block strict "$P4"
 
 T5=$(build_transcript "")
 P5=$(build_payload "$T5" '["Plan A", "End here"]')
-run_case "strict mode + empty transcript → block (no signal found)" block strict "$P5"
+run_case "explicit strict env + empty transcript → block (no signal)" block strict "$P5"
+
+# ---------------------------------------------------------------------------
+# (b2) ADVISORY cases — opt-out via PRAXIS_ASK_END_ADVISORY=1
+# ---------------------------------------------------------------------------
+
+T_adv1=$(build_transcript "Continue with the next step")
+P_adv1=$(build_payload "$T_adv1" '["Plan A", "Plan B", "여기서 종료"]')
+run_case "advisory mode + korean end marker, neutral message" advisory advisory "$P_adv1"
+
+T_adv2=$(build_transcript "What about option B?")
+P_adv2=$(build_payload "$T_adv2" '["Implement", "Review", "End here"]')
+run_case "advisory mode + english end marker, neutral message" advisory advisory "$P_adv2"
 
 # ---------------------------------------------------------------------------
 # (c) PASS cases — no end marker
@@ -209,11 +230,10 @@ print(json.dumps({
 }))')
 run_case "questions with non-list options → pass" pass default "$P15"
 
-# missing transcript_path: end marker present, no signal → advisory still fires
-# (transcript silently empty, stop signal absent → advisory)
+# missing transcript_path: end marker present, no signal → block (default strict)
 T16=$(build_transcript "")
 P16=$(build_payload "/nonexistent/path-$$.jsonl" '["Plan A", "End here"]')
-run_case "missing transcript file + end marker → advisory" advisory default "$P16"
+run_case "missing transcript file + end marker → block (default strict)" block default "$P16"
 
 # ---------------------------------------------------------------------------
 # (g) Multi-question payload — marker in any question triggers advisory
@@ -241,7 +261,7 @@ print(json.dumps({
 }))
 PY
 )
-run_case "multi-question payload, marker in second question" advisory default "$P17"
+run_case "multi-question payload, marker in second question" block default "$P17"
 
 # ---------------------------------------------------------------------------
 # (h) F1 regression — bare-word stop tokens must NOT trigger (codex #193)
@@ -254,23 +274,23 @@ run_case "multi-question payload, marker in second question" advisory default "$
 
 T18=$(build_transcript "send the message to the team")
 P18=$(build_payload "$T18" '["Plan A", "End here"]')
-run_case "[F1] 'send' substring must NOT pass as stop signal" advisory default "$P18"
+run_case "[F1] 'send' substring must NOT pass as stop signal" block default "$P18"
 
 T19=$(build_transcript "the backend service is failing")
 P19=$(build_payload "$T19" '["Plan A", "End here"]')
-run_case "[F1] 'backend' substring must NOT pass as stop signal" advisory default "$P19"
+run_case "[F1] 'backend' substring must NOT pass as stop signal" block default "$P19"
 
 T20=$(build_transcript "don't stop now, keep going")
 P20=$(build_payload "$T20" '["Plan A", "End here"]')
-run_case "[F1] negated 'don't stop now' must NOT pass" advisory default "$P20"
+run_case "[F1] negated 'don't stop now' must NOT pass" block default "$P20"
 
 T21=$(build_transcript "I quit the previous job last year")
 P21=$(build_payload "$T21" '["Plan A", "End here"]')
-run_case "[F1] 'quit' bare word in unrelated context must NOT pass" advisory default "$P21"
+run_case "[F1] 'quit' bare word in unrelated context must NOT pass" block default "$P21"
 
 T22=$(build_transcript "do not wrap up yet")
 P22=$(build_payload "$T22" '["Plan A", "End here"]')
-run_case "[F1] negated 'do not wrap up' must NOT pass" advisory default "$P22"
+run_case "[F1] negated 'do not wrap up' must NOT pass" block default "$P22"
 
 # ---------------------------------------------------------------------------
 # (i) F2 regression — tool_result-only user entry must be skipped (codex #193)
@@ -314,7 +334,7 @@ run_case "[F2] tool_result-only skipped, prior korean stop signal" pass strict "
 
 T25=$(build_tool_result_transcript "Continue with the next step")
 P25=$(build_payload "$T25" '["Plan A", "End here"]')
-run_case "[F2] tool_result-only skipped, prior msg has no signal → advisory" advisory default "$P25"
+run_case "[F2] tool_result-only skipped, prior msg has no signal → block" block default "$P25"
 
 # ---------------------------------------------------------------------------
 # (j) F1 positive — phrase-based stop signals continue to match
@@ -333,6 +353,94 @@ run_case "[F1+] 'we are done' phrase passes" pass default "$P27"
 T28=$(build_transcript "Time to wrap up, that's all from me")
 P28=$(build_payload "$T28" '["Plan A", "End here"]')
 run_case "[F1+] 'wrap up' + 'that's all' phrases pass" pass default "$P28"
+
+# ---------------------------------------------------------------------------
+# (k) Indirect end-option markers — English (issue #209)
+# ---------------------------------------------------------------------------
+
+T_ie1=$(build_transcript "Continue with the plan")
+P_ie1=$(build_payload "$T_ie1" '["Plan A", "Plan B", "Take a break"]')
+run_case "[indirect-EN] 'take a break' in options → block" block default "$P_ie1"
+
+T_ie2=$(build_transcript "What should we do next?")
+P_ie2=$(build_payload "$T_ie2" '["Option 1", "Option 2", "Prioritize other work"]')
+run_case "[indirect-EN] 'prioritize other work' → block" block default "$P_ie2"
+
+T_ie3=$(build_transcript "Keep going please")
+P_ie3=$(build_payload "$T_ie3" '["Option 1", "Pause for now"]')
+run_case "[indirect-EN] 'pause for now' → block" block default "$P_ie3"
+
+T_ie4=$(build_transcript "Continue implementation")
+P_ie4=$(build_payload "$T_ie4" '["Plan A", "Plan B", "Resume in a later session"]')
+run_case "[indirect-EN] 'resume in a later session' → block" block default "$P_ie4"
+
+T_ie5=$(build_transcript "진행해 주세요")
+P_ie5=$(build_payload "$T_ie5" '["Option A", "Option B", "Other work first"]')
+run_case "[indirect-EN] 'other work first' → block" block default "$P_ie5"
+
+# ---------------------------------------------------------------------------
+# (l) Indirect end-option markers — Korean (issue #209)
+# ---------------------------------------------------------------------------
+
+T_ik1=$(build_transcript "계속 진행해 주세요")
+P_ik1=$(build_payload "$T_ik1" '["옵션 A", "옵션 B", "잠시 멈춰"]')
+run_case "[indirect-KO] '잠시 멈춰' in options → block" block default "$P_ik1"
+
+T_ik2=$(build_transcript "다음 단계 알려주세요")
+P_ik2=$(build_payload "$T_ik2" '["Plan A", "잠시 보류"]')
+run_case "[indirect-KO] '잠시 보류' → block" block default "$P_ik2"
+
+T_ik3=$(build_transcript "계속해주세요")
+P_ik3=$(build_payload "$T_ik3" '["옵션 1", "옵션 2", "휴식"]')
+run_case "[indirect-KO] '휴식' → block" block default "$P_ik3"
+
+T_ik4=$(build_transcript "다음 작업 알려주세요")
+P_ik4=$(build_payload "$T_ik4" '["Plan A", "다른 작업 우선"]')
+run_case "[indirect-KO] '다른 작업 우선' → block" block default "$P_ik4"
+
+T_ik5=$(build_transcript "계속 진행해")
+P_ik5=$(build_payload "$T_ik5" '["Plan A", "Plan B", "다음 세션"]')
+run_case "[indirect-KO] '다음 세션' → block" block default "$P_ik5"
+
+T_ik6=$(build_transcript "어떻게 할까요")
+P_ik6=$(build_payload "$T_ik6" '["옵션 A", "보류"]')
+run_case "[indirect-KO] '보류' → block" block default "$P_ik6"
+
+# ---------------------------------------------------------------------------
+# (m) 4-option padding pattern — 4th option only carries indirect marker
+# ---------------------------------------------------------------------------
+
+T_4p1=$(build_transcript "이슈 분석 부탁해")
+P_4p1=$(build_payload "$T_4p1" '["이슈 생성", "구현 계획", "워크트리 설정", "Take a break"]')
+run_case "[4-pad] 4-option set, 4th only is indirect → block" block default "$P_4p1"
+
+T_4p2=$(build_transcript "continue")
+P_4p2=$(build_payload "$T_4p2" '["Step 1", "Step 2", "Step 3", "Pause for now"]')
+run_case "[4-pad] 4-option set, 4th only is 'pause for now' → block" block default "$P_4p2"
+
+T_4p3=$(build_transcript "계속 진행해주세요")
+P_4p3=$(build_payload "$T_4p3" '["리뷰", "구현", "테스트", "다음 세션"]')
+run_case "[4-pad] 4-option set, 4th only is '다음 세션' → block" block default "$P_4p3"
+
+# ---------------------------------------------------------------------------
+# (n) False positive avoidance — legitimate work options must NOT be blocked
+# ---------------------------------------------------------------------------
+
+T_fp1=$(build_transcript "다음 단계 알려주세요")
+P_fp1=$(build_payload "$T_fp1" '["이슈 생성", "PR 생성", "테스트 실행"]')
+run_case "[false-pos] normal work options, no end marker → pass" pass default "$P_fp1"
+
+T_fp2=$(build_transcript "진행해주세요")
+P_fp2=$(build_payload "$T_fp2" '["Plan A", "다른 방법 먼저", "Option C"]')
+run_case "[false-pos] '다른 방법 먼저' is NOT '다른 작업 우선' → pass" pass default "$P_fp2"
+
+T_fp3=$(build_transcript "keep going")
+P_fp3=$(build_payload "$T_fp3" '["break down the task", "pause and review docs", "continue"]')
+run_case "[false-pos] 'break down' / 'pause and review' not end markers → pass" pass default "$P_fp3"
+
+T_fp4=$(build_transcript "무엇을 해야 할까요")
+P_fp4=$(build_payload "$T_fp4" '["작업 세션 예약", "코드 리뷰", "배포"]')
+run_case "[false-pos] '세션' alone in non-end context → pass" pass default "$P_fp4"
 
 # ---------------------------------------------------------------------------
 # Summary
