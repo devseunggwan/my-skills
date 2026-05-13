@@ -175,6 +175,7 @@ Design contract shared by all hooks:
 | `session-intent` | UserPromptSubmit + PreToolUse | Gate read-intent → mutation-pivot session drift on `gh` mutating commands | [docs/hook/session-intent.md](docs/hook/session-intent.md) |
 | `trino-describe-first` | PreToolUse + PostToolUse | Require `DESCRIBE <table>` before Trino MCP query references that table | [docs/hook/trino-describe-first.md](docs/hook/trino-describe-first.md) |
 | `pre-edit-protected-branch-guard` | PreToolUse | Block Edit/Write/NotebookEdit on protected branches (main/dev/prod/master) when dirty and target not already in dirty diff | [docs/hook/pre-edit-protected-branch-guard.md](docs/hook/pre-edit-protected-branch-guard.md) |
+| `external-api-literal-trigger` | PreToolUse | Advisory nudge when ALL_CAPS enum candidates or 3-part SQL identifiers are written without prior retrieval verification (issue #202) | [docs/hook/external-api-literal-trigger.md](docs/hook/external-api-literal-trigger.md) |
 
 ### Hook ordering and precedence
 
