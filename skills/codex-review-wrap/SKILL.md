@@ -11,6 +11,9 @@ description: >
   in the session ledger.
   Triggers on "codex review", "review codex", "safe review", "/codex-review-wrap",
   "premise verification", "flip detection", "sibling defect", "sibling cross-check".
+verified-against-runtime: true
+runtime-verified-at: 2026-05-13
+runtime-verified-note: "codex-companion 1.0.4 — ARGUMENTS rejected for non-flag string; AskUserQuestion maxItems:4 blocks worktree list >3 items; Skill() cannot delegate to disable-model-invocation skill"
 ---
 
 # codex-review-wrap
@@ -86,15 +89,25 @@ Skip selection. Proceed directly to Step 3 using cwd.
 
 **Case B — 2 or more non-bare worktrees:**
 
-Call `AskUserQuestion` with:
+Call `AskUserQuestion` with at most **3** worktree options + `"취소"` to
+respect the `AskUserQuestion.options` `maxItems: 4` runtime cap (see
+`RUNTIME_CONSTRAINTS.md`). When more than 3 worktrees are active, rank
+by recency (most recent HEAD commit time first) and surface the top 3;
+the runtime's automatic "Other" slot lets the user type any worktree
+path not in the list.
 
 ```
 title: "어느 worktree 를 review 할까요?"
-question: "현재 활성 worktrees:\n{numbered list}\n\n번호를 입력하거나 경로를 직접 입력하세요."
-options: [{path}: ({branch}) for each worktree] + ["취소"]
+question: "현재 활성 worktrees:\n{numbered list of ALL worktrees}\n\n번호를 선택하거나 'Other' 에 경로를 직접 입력하세요."
+options: [{path}: ({branch}) for top 3 most-recently-updated worktrees] + ["취소"]
 ```
 
-Wait for user response. If "취소" or no selection → abort with message:
+The full worktree list still appears in the `question` body so the user
+can read every path even when only the top 3 are surfaced as options.
+If the user picks `"Other"` and types a path, validate it against the
+full `git worktree list` output before proceeding.
+
+Wait for user response. If `"취소"` or no selection → abort with message:
 "Review 취소됨. 대상을 선택하지 않았습니다."
 
 ### Step 3: Confirm Selected Target
