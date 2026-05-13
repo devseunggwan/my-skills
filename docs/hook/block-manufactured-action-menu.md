@@ -112,7 +112,16 @@ Detected destructive tokens in option labels:
 Additionally, the hook ignores status-query / question messages so
 phrasings like `진행 상황 알려줘` or `where should we go from here?`
 do not register as command-intent and therefore never reach the
-manufactured-marker check. Detected query forms:
+manufactured-marker check. Negated directives (`don't proceed yet`,
+`do not continue`, `진행하지 마`, `계속하지 말아줘`) are also rejected:
+Korean tokens require the following 12 chars to not contain
+`하지 마` / `하지 말`, and English tokens require the preceding 30
+chars to not contain a negation marker (`don't`, `do not`, `won't`,
+`will not`, `cannot`, `should not`, `never`, ` not `, ...).
+
+The Korean command-signal list also includes `계속` so that
+continuation messages like `계속해` / `계속 진행` correctly pair with
+the `계속할까요` manufactured marker. Detected query forms:
 
 - Korean: `진행 상황`, `진행 중`, `진행 정도`, `진행률`, `어디까지`,
   `어떻게 진행`, `상황 알려`, `상태 확인`, `상태 알려`

@@ -409,6 +409,40 @@ P_wb3=$(build_payload "$T_wb3" '["proceed", "prod deploy"]')
 run_case "[wb] standalone 'prod deploy' triggers exempt + cmd + strict → pass" pass strict "$P_wb3"
 
 # ---------------------------------------------------------------------------
+# (h) Negation guard — explicit "don't / 진행하지 마" must NOT register
+#     as command-intent even though the action verb appears.
+# ---------------------------------------------------------------------------
+
+T_ng1=$(build_transcript "don't proceed yet")
+P_ng1=$(build_payload "$T_ng1" '["Plan A", "proceed"]')
+run_case "[negation-EN] \"don't proceed yet\" + 'proceed' → pass" pass default "$P_ng1"
+
+T_ng2=$(build_transcript "do not continue")
+P_ng2=$(build_payload "$T_ng2" '["Plan A", "continue"]')
+run_case "[negation-EN] 'do not continue' + 'continue' → pass" pass default "$P_ng2"
+
+T_ng3=$(build_transcript "진행하지 마")
+P_ng3=$(build_payload "$T_ng3" '["Plan A", "진행할까요"]')
+run_case "[negation-KO] '진행하지 마' + '진행할까요' → pass" pass default "$P_ng3"
+
+T_ng4=$(build_transcript "계속하지 말아줘")
+P_ng4=$(build_payload "$T_ng4" '["Plan A", "계속할까요"]')
+run_case "[negation-KO] '계속하지 말아줘' + '계속할까요' → pass" pass default "$P_ng4"
+
+# ---------------------------------------------------------------------------
+# (i) Korean signal `계속` — must be recognized as command-intent so
+#     `계속할까요` manufactured menu is detected.
+# ---------------------------------------------------------------------------
+
+T_ks1=$(build_transcript "계속해")
+P_ks1=$(build_payload "$T_ks1" '["Plan A", "계속할까요"]')
+run_case "[KO-signal] '계속해' + '계속할까요' → advisory" advisory default "$P_ks1"
+
+T_ks2=$(build_transcript "계속 진행")
+P_ks2=$(build_payload "$T_ks2" '["Plan A", "계속할까요"]')
+run_case "[KO-signal] '계속 진행' + '계속할까요' → advisory" advisory default "$P_ks2"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

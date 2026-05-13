@@ -68,6 +68,35 @@ COMMAND_SIGNALS_KO = (
     "커밋",
     "push",
     "푸시",
+    "계속",
+)
+
+# Negation markers that, when found following a Korean signal token,
+# convert the directive into "do not <action>" — must NOT register as
+# command-intent. Examples: "진행하지 마", "계속하지 마", "머지하지 마".
+NEGATION_FOLLOWUP_KO = (
+    "하지 마",
+    "하지 말",
+    "하지마",
+    "하지말",
+)
+
+# English negation window: # of chars to scan before an EN command token.
+# If any negation marker appears in that window, the match is rejected.
+NEGATION_WINDOW_EN = 30
+NEGATION_MARKERS_EN = (
+    "don't",
+    "do not",
+    "won't",
+    "will not",
+    "cannot",
+    "can't",
+    "should not",
+    "shouldn't",
+    "must not",
+    "mustn't",
+    "never",
+    " not ",
 )
 COMMAND_SIGNALS_EN_TOKENS = (
     "go",
@@ -333,18 +362,29 @@ def _has_command_signal(user_message: str) -> bool:
     if _is_status_query(user_message):
         return False
 
-    # Korean: substring match.
+    # Korean: substring match, but reject when the token is followed by a
+    # negation pattern ("진행하지 마", "계속하지 말아줘", ...).
     for ko in COMMAND_SIGNALS_KO:
-        if ko in user_message:
-            return True
+        start = 0
+        while True:
+            idx = user_message.find(ko, start)
+            if idx < 0:
+                break
+            tail = user_message[idx + len(ko): idx + len(ko) + 12]
+            if not any(neg in tail for neg in NEGATION_FOLLOWUP_KO):
+                return True
+            start = idx + len(ko)
 
-    # English: whole-word match (case-insensitive).
+    # English: whole-word match (case-insensitive) with negation guard on
+    # the preceding window ("don't proceed", "do not continue").
     lower = user_message.lower()
     import re
     for token in COMMAND_SIGNALS_EN_TOKENS:
         pattern = r"\b" + re.escape(token.lower()) + r"\b"
-        if re.search(pattern, lower):
-            return True
+        for m in re.finditer(pattern, lower):
+            prefix = lower[max(0, m.start() - NEGATION_WINDOW_EN):m.start()]
+            if not any(neg in prefix for neg in NEGATION_MARKERS_EN):
+                return True
 
     return False
 
