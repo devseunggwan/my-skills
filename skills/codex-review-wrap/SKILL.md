@@ -11,6 +11,9 @@ description: >
   in the session ledger.
   Triggers on "codex review", "review codex", "safe review", "/codex-review-wrap",
   "premise verification", "flip detection", "sibling defect", "sibling cross-check".
+verified-against-runtime: true
+runtime-verified-at: 2026-05-13
+runtime-verified-note: "codex-companion 1.0.4 — ARGUMENTS rejected for non-flag string; AskUserQuestion maxItems:4 blocks worktree list >3 items; Skill() cannot delegate to disable-model-invocation skill"
 ---
 
 # codex-review-wrap
