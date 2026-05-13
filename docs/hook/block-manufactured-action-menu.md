@@ -103,7 +103,21 @@ Detected destructive tokens in option labels:
 
 - Korean: `머지`, `푸시`, `삭제`, `지우`, `드롭`, `초기화`, `force`, `프로덕션`
 - English: `merge`, `push`, `delete`, `drop`, `truncate`, `force`,
-  `prod`, `production`, `destroy`
+  `prod`, `destroy` (matched with ASCII-letter lookaround rather than
+  `\b` so mixed-script labels like `push할까요` match while
+  `production-ready` / `Product plan` do not — `production` is
+  intentionally not a separate token because it overlaps with
+  non-destructive adjectives)
+
+Additionally, the hook ignores status-query / question messages so
+phrasings like `진행 상황 알려줘` or `where should we go from here?`
+do not register as command-intent and therefore never reach the
+manufactured-marker check. Detected query forms:
+
+- Korean: `진행 상황`, `진행 중`, `진행 정도`, `진행률`, `어디까지`,
+  `어떻게 진행`, `상황 알려`, `상태 확인`, `상태 알려`
+- English: trailing `?`, or any of `where should we`, `where do we`,
+  `where to go`, `from here`, `how do we`, `what do we`, `should we`
 
 For other legitimate cases (substantive alternatives, less obvious
 destructive contexts) the advisory mode will warn but not block; the

@@ -369,6 +369,46 @@ P_de6=$(build_payload "$T_de6" '["진행할까요", "머지할까요"]')
 run_case "[destructive-exempt-KO] '머지할까요' label + cmd + advisory → pass" pass default "$P_de6"
 
 # ---------------------------------------------------------------------------
+# (f) Status-query / question filter — messages that look like progress
+#     checks or questions must NOT trigger command-signal detection,
+#     even when an action verb appears as a substring.
+# ---------------------------------------------------------------------------
+
+T_sq1=$(build_transcript "진행 상황 알려줘")
+P_sq1=$(build_payload "$T_sq1" '["Plan A", "진행할까요"]')
+run_case "[status-query-KO] '진행 상황 알려줘' + marker → pass" pass default "$P_sq1"
+
+T_sq2=$(build_transcript "where should we go from here?")
+P_sq2=$(build_payload "$T_sq2" '["Plan A", "proceed"]')
+run_case "[status-query-EN] 'where should we go from here?' + marker → pass" pass default "$P_sq2"
+
+T_sq3=$(build_transcript "어디까지 진행됐어?")
+P_sq3=$(build_payload "$T_sq3" '["Plan A", "계속할까요"]')
+run_case "[status-query-KO] '어디까지 진행됐어?' + marker → pass" pass default "$P_sq3"
+
+T_sq4=$(build_transcript "should we continue?")
+P_sq4=$(build_payload "$T_sq4" '["Plan A", "continue"]')
+run_case "[status-query-EN] 'should we continue?' + marker → pass" pass default "$P_sq4"
+
+# ---------------------------------------------------------------------------
+# (g) Destructive-token word-boundary — `prod` substring must NOT
+#     match `Product plan` / `production-ready docs`.
+# ---------------------------------------------------------------------------
+
+T_wb1=$(build_transcript "go ahead")
+P_wb1=$(build_payload "$T_wb1" '["proceed", "Product plan"]')
+run_case "[wb] 'Product plan' should NOT trigger prod-exempt + cmd + strict → block" block strict "$P_wb1"
+
+T_wb2=$(build_transcript "go ahead")
+P_wb2=$(build_payload "$T_wb2" '["proceed", "production-ready docs"]')
+run_case "[wb] 'production-ready docs' should NOT trigger prod-exempt + cmd + strict → block" block strict "$P_wb2"
+
+# Sanity: standalone `prod` word still triggers exempt.
+T_wb3=$(build_transcript "go ahead")
+P_wb3=$(build_payload "$T_wb3" '["proceed", "prod deploy"]')
+run_case "[wb] standalone 'prod deploy' triggers exempt + cmd + strict → pass" pass strict "$P_wb3"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

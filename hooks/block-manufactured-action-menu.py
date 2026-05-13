@@ -97,6 +97,10 @@ DESTRUCTIVE_LABEL_TOKENS_KO = (
     "force",
     "프로덕션",
 )
+# English destructive tokens. `production` intentionally omitted — it
+# is lexically ambiguous with `production-ready` / `Product plan`-style
+# adjectives. Use the short form `prod` for destructive intent (matches
+# `prod deploy`, `prod rollback`).
 DESTRUCTIVE_LABEL_TOKENS_EN = (
     "merge",
     "push",
@@ -105,7 +109,6 @@ DESTRUCTIVE_LABEL_TOKENS_EN = (
     "truncate",
     "force",
     "prod",
-    "production",
     "destroy",
 )
 
@@ -242,17 +245,75 @@ def _has_destructive_label(labels: list[str]) -> bool:
     confirmation that a prior generic command does not absorb. When the
     menu contains such a label, treat it as a legitimate confirmation
     gate even when other markers and a command signal coexist.
+
+    English tokens are matched with ASCII-letter lookaround rather than
+    `\\b` word boundaries: this rejects `Product plan` / `production-
+    ready` (token followed by another ASCII letter) while still matching
+    mixed-script labels like `push할까요` (token followed by a Korean
+    character, which `\\b` would not split on because Python's
+    Unicode-aware `\\w` treats Korean as a word character).
     """
     if not labels:
         return False
+    import re
     for label in labels:
         lower = label.lower()
         for token in DESTRUCTIVE_LABEL_TOKENS_KO:
             if token in label or token.lower() in lower:
                 return True
         for token in DESTRUCTIVE_LABEL_TOKENS_EN:
-            if token.lower() in lower:
+            pattern = r"(?<![a-z])" + re.escape(token.lower()) + r"(?![a-z])"
+            if re.search(pattern, lower):
                 return True
+    return False
+
+
+# Status-query / question phrasings — explicit command intent is absent
+# even though an action verb appears as a substring. These exclude the
+# message from command-signal detection so legitimate status checks
+# ("진행 상황 알려줘", "where should we go from here?") are not treated
+# as imperatives.
+STATUS_QUERY_PATTERNS_KO = (
+    "진행 상황",
+    "진행 중",
+    "진행 정도",
+    "진행률",
+    "어디까지",
+    "어떻게 진행",
+    "상황 알려",
+    "상태 확인",
+    "상태 알려",
+)
+STATUS_QUERY_PATTERNS_EN = (
+    "where should we",
+    "where do we",
+    "where to go",
+    "from here",
+    "how do we",
+    "what do we",
+    "should we",
+)
+
+
+def _is_status_query(user_message: str) -> bool:
+    """True if the message reads as a status query / question rather
+    than an imperative command. Filters out 'progress check' /
+    'where should we go' style messages that would otherwise false-
+    trigger via the substring or word-boundary match on `진행` / `go`.
+    """
+    if not user_message:
+        return False
+    # Korean status-query phrases.
+    for kw in STATUS_QUERY_PATTERNS_KO:
+        if kw in user_message:
+            return True
+    # English: trailing question mark or interrogative leads.
+    lower = user_message.lower().strip()
+    if lower.endswith("?"):
+        return True
+    for kw in STATUS_QUERY_PATTERNS_EN:
+        if kw in lower:
+            return True
     return False
 
 
@@ -262,8 +323,14 @@ def _has_command_signal(user_message: str) -> bool:
     Korean tokens: substring match (CJK has low collision risk for these
     specific action verbs). English tokens: whole-word match (prevents
     "continuing" → "continue", "progress" → "go", etc.).
+
+    Status-query / question messages are excluded up-front so that
+    `진행 상황 알려줘` does not match `진행` and
+    `where should we go from here?` does not match `go`.
     """
     if not user_message:
+        return False
+    if _is_status_query(user_message):
         return False
 
     # Korean: substring match.
