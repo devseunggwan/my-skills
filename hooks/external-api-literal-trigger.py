@@ -62,9 +62,18 @@ SQL_3PART_RE = re.compile(
 
 # SQL context keywords: the 3-part identifier must be preceded by one of these
 # within a short window to qualify as a SQL table reference.
+# Three identifier shapes are recognized after the keyword:
+#   bare:        catalog.schema.table
+#   double-quoted: "catalog"."schema"."table"     (ANSI SQL quoted form)
+#   backticked:  `catalog`.`schema`.`table`       (MySQL / Hive form)
 SQL_CONTEXT_RE = re.compile(
-    r"\b(?:FROM|JOIN|TABLE|INTO|UPDATE)\s+[a-z_][a-z0-9_]{1,}\.[a-z_][a-z0-9_]{1,}\.[a-z_][a-z0-9_]{1,}\b",
-    re.IGNORECASE,
+    r"""\b(?:FROM|JOIN|TABLE|INTO|UPDATE)\s+
+        (?:
+            [a-z_][a-z0-9_]{1,}\.[a-z_][a-z0-9_]{1,}\.[a-z_][a-z0-9_]{1,}\b
+          | "[^"]+"\."[^"]+"\."[^"]+"
+          | `[^`]+`\.`[^`]+`\.`[^`]+`
+        )""",
+    re.IGNORECASE | re.VERBOSE,
 )
 
 # Stop-words: common code constants that are NOT external API literals.
@@ -148,24 +157,33 @@ def find_sql_3part_identifiers(text: str) -> list[str]:
     (preceded by FROM / JOIN / TABLE / INTO / UPDATE). This avoids
     false positives on Python attribute chains like `os.environ.get`,
     `module.sub.method`, etc.
+
+    Supports three identifier shapes:
+      bare:           catalog.schema.table
+      double-quoted:  "catalog"."schema"."table"
+      backticked:     `catalog`.`schema`.`table`
+    Quoted forms are returned with their delimiters stripped so the
+    advisory message displays the logical name only.
     """
     found: list[str] = []
     seen: set[str] = set()
     for m in SQL_CONTEXT_RE.finditer(text):
-        # Extract the 3-part identifier from the context match.
-        # The match includes the keyword (FROM/JOIN/...) followed by the identifier.
+        # The match includes the keyword (FROM/JOIN/...) followed by the
+        # identifier; the identifier is the last whitespace-separated token.
         full = m.group(0)
-        # The identifier is the last token after the keyword and whitespace.
         parts = full.split()
         identifier = parts[-1] if parts else ""
-        if not identifier or identifier in seen:
+        if not identifier:
             continue
-        # Validate structure: 3 parts separated by dots.
-        dot_parts = identifier.split(".")
-        if len(dot_parts) != 3:
+        # Normalize quoted forms by stripping wrapping `"` or `` ` ``.
+        normalized = identifier.replace('"', "").replace("`", "")
+        dot_parts = normalized.split(".")
+        if len(dot_parts) != 3 or not all(dot_parts):
             continue
-        seen.add(identifier)
-        found.append(identifier)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        found.append(normalized)
     return found
 
 

@@ -152,6 +152,16 @@ run_case "Write: PAYMENT_STATUS_APPROVED enum" advisory \
 run_case "Edit: 3-part SQL hive.warehouse.orders" advisory \
   "$(make_edit_payload 'SELECT * FROM hive.warehouse.orders LIMIT 10')"
 
+# Quoted / backticked 3-part SQL identifiers (ANSI / MySQL / Hive forms)
+run_case "Edit: quoted 3-part SQL \"mysql\".\"auth\".\"tb_user\"" advisory \
+  "$(make_edit_payload 'SELECT * FROM "mysql"."auth"."tb_user" WHERE id = 1')"
+
+run_case "Edit: backticked 3-part SQL \`mysql\`.\`auth\`.\`tb_user\`" advisory \
+  "$(make_edit_payload 'SELECT * FROM `mysql`.`auth`.`tb_user` WHERE id = 1')"
+
+run_case "Edit: JOIN with quoted 3-part \"hive\".\"warehouse\".\"orders\"" advisory \
+  "$(make_edit_payload 'SELECT a.id FROM t a JOIN "hive"."warehouse"."orders" o ON a.id=o.id')"
+
 # ---------------------------------------------------------------------------
 # Pass cases: should NOT emit advisory
 # ---------------------------------------------------------------------------

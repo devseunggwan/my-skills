@@ -66,8 +66,18 @@ context keyword (`FROM`, `JOIN`, `TABLE`, `INTO`, `UPDATE`). The SQL
 context gate prevents false positives on Python attribute chains like
 `os.environ.get` or `module.sub.attribute`.
 
+Three quoting shapes are recognized; quoted forms are normalized
+(delimiters stripped) before reporting:
+
+| Form | Example |
+|------|---------|
+| Bare | `mysql.auth.tb_user` |
+| ANSI double-quoted | `"mysql"."auth"."tb_user"` |
+| MySQL / Hive backticked | `` `mysql`.`auth`.`tb_user` `` |
+
 Examples that fire: `mysql.auth.tb_user` (in `FROM mysql.auth.tb_user`),
-`hive.warehouse.orders` (in `SELECT * FROM hive.warehouse.orders`)
+`hive.warehouse.orders` (in `SELECT * FROM hive.warehouse.orders`),
+`"mysql"."auth"."tb_user"` (in `FROM "mysql"."auth"."tb_user"`)
 
 ### Stop-words (excluded from ALL_CAPS scan)
 
