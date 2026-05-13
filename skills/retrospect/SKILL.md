@@ -634,6 +634,7 @@ If you catch yourself:
 - **`Proposed Actions` count = 2 인데 두 action 이 decision-coupled (한 쪽이 다른 쪽이 묻는 질문을 이미 결정)** — Gate-3 (b) 위반. 둘 다 실행하면 상호 모순 상태가 만들어지며, `upstream_feedback` 측이 외부 레포에 빈 질문을 남기는 노이즈가 발생한다. 강한 evidence 쪽을 유지하고 약한 쪽은 trigger condition으로 강등.
 - **2-action finding 의 각 action 이 ≥1 friction-event observation 을 인용하지 않음** — Gate-3 (a) 위반. Category-default form-filling만으로 만들어진 action 은 evidence-based delivery 원칙과 충돌하며, 첫 번째 action 이 이미 수행한 결정을 두 번째가 반복-질문하는 redundancy 의 전형적 신호.
 - **Surfacing an option as `(Recommended)` or default without running a disconfirming test on the recommendation's own premise** — premise verification at HIGH-confidence lock is mandatory. The user's push-back is a trailing signal; pre-emptive self-falsification is the correct path. (Pairs with the upstream `Falsify Before Fix` global rule.)
+- **조사 도구 결과를 completeness 검증 없이 결론에 사용 (premise unverified)** — 다음 두 패턴 모두 "premise falsified" (반증 테스트를 설계한 뒤 통과 → 진행 가능)가 아니라 "premise unverified" (도구 출력 자체의 한계를 검증하지 않은 채 결론에 사용 → STOP) 에 해당한다: (a) `find ... | head -N` 결과로 "파일/모듈 없음" 단정 — **`head` 를 제거한 원 명령 `find ... | wc -l` 을 별도로 실행**해 총 라인 수를 확인하고, cap 초과 시 cap 제거 또는 `grep -rn <token>` narrowing 필요 (`head -N` 파이프 뒤에 `| wc -l` 을 붙이면 cap 으로 잘린 뒤의 라인 수만 세므로 정확히 N개와 cap 초과를 구분할 수 없어 검증이 실패한다); (b) `find <path>` 빈 결과로 "경로/모듈 없음" 단정 — `ls <parent>` 로 path coverage 를 확인하거나 상위 경로로 재시도, 또는 `grep -rn <token>` cross-check 필요.
 
 **ALL of these mean: STOP. Return to Stage 2.**
 
