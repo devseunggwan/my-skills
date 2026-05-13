@@ -30,7 +30,7 @@ boundary, where the check runs mechanically regardless of retrieval state.
 | Scenario | Action |
 |----------|--------|
 | Default mode, direct end marker in any option label, no user stop signal | exit 2 (block) |
-| Default mode, indirect end marker ("take a break" / "보류" etc.), no stop signal | exit 2 (block) |
+| Default mode, indirect end marker ("take a break" / "잠시 보류" etc.), no stop signal | exit 2 (block) |
 | `PRAXIS_ASK_END_ADVISORY=1`, marker present, no stop signal | exit 0 + advisory stderr |
 | `PRAXIS_ASK_END_STRICT=1` (deprecated), marker present, no stop signal | exit 2 (block) |
 | Any tool name other than `AskUserQuestion` | silent pass-through |
@@ -70,7 +70,10 @@ boundary, where the check runs mechanically regardless of retrieval state.
 - `휴식`
 - `다른 작업 우선`
 - `다음 세션`
-- `보류`
+
+Bare `보류` is intentionally **not** a marker: substring match would
+false-block legitimate labels such as `보류 중인 이슈 확인`. Use
+`잠시 보류` for the session-pause-specific form.
 
 All matches are case-insensitive substring checks against the option label.
 
@@ -131,7 +134,7 @@ bash hooks/test-block-ask-end-option.sh
 Covers: direct Korean/English end markers (block + advisory modes), indirect
 English phrasing (take a break, prioritize other work, pause for now, resume in
 a later session, other work first), indirect Korean phrasing (잠시 멈춰, 잠시
-보류, 휴식, 다른 작업 우선, 다음 세션, 보류), 4-option padding pattern (4th
+보류, 휴식, 다른 작업 우선, 다음 세션), 4-option padding pattern (4th
 option only carries indirect marker), false positive avoidance (normal work
 options, partial keyword matches that must not trigger), explicit strict env var
 (deprecated compatibility), advisory opt-out via `PRAXIS_ASK_END_ADVISORY=1`,

@@ -55,13 +55,16 @@ END_OPTION_MARKERS_KO = (
     "세션 종료",
     "여기서 끝",
     "여기까지",
-    # Indirect Korean: pause / break / defer / other-work framing
+    # Indirect Korean: pause / break / defer / other-work framing.
+    # Bare "보류" intentionally omitted: substring match would false-block
+    # legitimate work labels like "보류 중인 이슈 확인" / "보류 상태 검토".
+    # The "잠시 보류" phrase below is the session-pause-specific form we
+    # want to catch.
     "잠시 멈춰",
     "잠시 보류",
     "휴식",
     "다른 작업 우선",
     "다음 세션",
-    "보류",
 )
 END_OPTION_MARKERS_EN = (
     "end here",

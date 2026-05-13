@@ -404,9 +404,8 @@ T_ik5=$(build_transcript "계속 진행해")
 P_ik5=$(build_payload "$T_ik5" '["Plan A", "Plan B", "다음 세션"]')
 run_case "[indirect-KO] '다음 세션' → block" block default "$P_ik5"
 
-T_ik6=$(build_transcript "어떻게 할까요")
-P_ik6=$(build_payload "$T_ik6" '["옵션 A", "보류"]')
-run_case "[indirect-KO] '보류' → block" block default "$P_ik6"
+# Bare "보류" intentionally omitted as a marker — see block-ask-end-option.py
+# rationale comment. Verify false-positive cases below don't regress.
 
 # ---------------------------------------------------------------------------
 # (m) 4-option padding pattern — 4th option only carries indirect marker
@@ -443,6 +442,12 @@ run_case "[false-pos] 'break down' / 'pause and review' not end markers → pass
 T_fp4=$(build_transcript "무엇을 해야 할까요")
 P_fp4=$(build_payload "$T_fp4" '["작업 세션 예약", "코드 리뷰", "배포"]')
 run_case "[false-pos] '세션' alone in non-end context → pass" pass default "$P_fp4"
+
+# Bare "보류" regression — was previously a marker, now removed because it
+# substring-matched legitimate labels like "보류 중인 이슈 확인".
+T_fp5=$(build_transcript "이슈 정리해주세요")
+P_fp5=$(build_payload "$T_fp5" '["보류 중인 이슈 확인", "보류 상태 검토", "신규 이슈 분류"]')
+run_case "[false-pos] '보류 중인 이슈 확인' / '보류 상태 검토' → pass" pass default "$P_fp5"
 
 # ---------------------------------------------------------------------------
 # Summary
