@@ -145,6 +145,57 @@ run_case "env wrapper transparent" pass Bash \
   'env GH_TOKEN=xyz gh pr create --body "Caller chain verified: new symbol, no caller expected"'
 
 # ---------------------------------------------------------------------------
+# --body-file cases (issue #220)
+# ---------------------------------------------------------------------------
+
+# (a) body-file with marker → allow
+run_case "body-file with marker" pass Bash \
+  "$(
+    f=$(mktemp)
+    printf 'Caller chain verified: N/A\n' >"$f"
+    printf 'gh pr create --title "fix: x" --body-file %s' "$f"
+  )"
+
+# (b) body-file without marker → block
+run_case "body-file without marker" block Bash \
+  "$(
+    f=$(mktemp)
+    printf '## Summary\nno marker here\n' >"$f"
+    printf 'gh pr create --title "fix: x" --body-file %s' "$f"
+  )"
+
+# (c) inline --body with marker (regression)
+run_case "inline body with marker regression" pass Bash \
+  'gh pr create --body "Caller chain verified: inline check"'
+
+# (d) body-file path does not exist → allow (passthrough; gh handles file error)
+run_case "body-file nonexistent path" pass Bash \
+  'gh pr create --title "fix: x" --body-file /tmp/does-not-exist-praxis-220.md'
+
+# (e) body-file stdin dash → allow
+run_case "body-file stdin dash" pass Bash \
+  'gh pr create --title "fix: x" --body-file -'
+
+# (f) block message contains heredoc cascade hint
+run_case "block msg heredoc hint" block Bash \
+  'gh pr create --body "no marker"'
+# The run_case above already checks block; separately verify the hint appears.
+_hint_err=$(python3 -c '
+import json, sys
+payload = json.dumps({
+    "tool_name": "Bash",
+    "tool_input": {"command": "gh pr create --body \"no marker\""},
+})
+sys.stdout.write(payload)
+' | python3 "$(dirname "$0")/block-pr-without-caller-evidence.py" 2>&1 >/dev/null || true)
+if printf '%s' "$_hint_err" | grep -q "heredoc redirect was also aborted"; then
+  echo "PASS [hint] block message contains heredoc-cascade hint"; ((PASS++))
+else
+  echo "FAIL [hint] block message missing heredoc-cascade hint"; ((FAIL++))
+  FAILED_NAMES+=("block msg heredoc-cascade hint text")
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

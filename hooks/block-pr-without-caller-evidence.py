@@ -15,6 +15,8 @@ Allow conditions:
   2. --repo/-R targets a different project (cross-project PR)
   3. --template/-T without --body/-b (interactive fill-in; body filled after)
   4. Effective body contains /^Caller chain verified:[ \\t]*\\S/i
+  5. --body-file - (stdin; cannot inspect — allow with passthrough)
+  6. --body-file <path> where file does not exist (gh itself handles the error)
 
 Accepted line forms (all satisfy condition 4):
   Caller chain verified: grep found 3 callers in src/providers/
@@ -24,7 +26,7 @@ Accepted line forms (all satisfy condition 4):
 
 Body sources resolved (in order):
   --body / -b  →  literal value or $VAR from earlier assignment
-  --body-file PATH  →  file read (empty on I/O error)
+  --body-file PATH  →  file read; missing file → passthrough (allow)
 
 Note: env/sudo/command prefix wrappers are transparent via strip_prefix().
 """
@@ -81,13 +83,6 @@ def _strip_fenced_blocks(body: str) -> str:
     return _FENCED_OPEN_RE.sub("", body)
 
 
-def _read_file(path: str) -> str:
-    try:
-        return Path(path).expanduser().read_text()
-    except (OSError, FileNotFoundError):
-        return ""
-
-
 def _build_heredoc_map(command: str) -> dict[str, str]:
     return {m.group(1): m.group(3) for m in _HEREDOC_ASSIGN_RE.finditer(command)}
 
@@ -99,7 +94,17 @@ def _resolve_vars(s: str, hmap: dict[str, str]) -> str:
     return _VAR_RE.sub(sub, s)
 
 
-def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> str:
+_ALLOW = object()  # sentinel: skip block check for this invocation
+
+
+def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | object":
+    """Return the effective PR body text, or _ALLOW if inspection must be skipped.
+
+    _ALLOW is returned when --body-file - (stdin) is encountered, or when a
+    --body-file path does not exist on disk.  In both cases the hook cannot
+    inspect the content; the invocation is allowed and gh itself handles any
+    subsequent error (e.g. missing file).
+    """
     parts: list[str] = []
     for i, t in enumerate(argv):
         if t in ("--body", "-b") and i + 1 < len(argv):
@@ -107,9 +112,21 @@ def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> str:
         elif t.startswith("--body="):
             parts.append(_resolve_vars(t.split("=", 1)[1], hmap))
         elif t == "--body-file" and i + 1 < len(argv):
-            parts.append(_read_file(argv[i + 1]))
+            path = argv[i + 1]
+            if path == "-":
+                return _ALLOW  # stdin — cannot inspect
+            p = Path(path).expanduser()
+            if not p.exists():
+                return _ALLOW  # file missing — let gh handle the error
+            parts.append(p.read_text())
         elif t.startswith("--body-file="):
-            parts.append(_read_file(t.split("=", 1)[1]))
+            path = t.split("=", 1)[1]
+            if path == "-":
+                return _ALLOW  # stdin — cannot inspect
+            p = Path(path).expanduser()
+            if not p.exists():
+                return _ALLOW  # file missing — let gh handle the error
+            parts.append(p.read_text())
     return "\n".join(parts)
 
 
@@ -177,6 +194,10 @@ Why (praxis #158):
   hard gate at the last checkpoint before shared-state mutation.
 
 Cross-project PRs (--repo other/org) are not blocked.
+
+Note: if you used `cat <<EOF > /tmp/body.md && gh pr create --body-file \
+/tmp/body.md` and got blocked, the heredoc redirect was also aborted — the \
+file does NOT exist. Use Write tool first, then a separate Bash call.
 """
 
 
@@ -209,6 +230,8 @@ def main() -> int:
         if _uses_template_without_body(argv):
             continue  # interactive template fill-in
         body = _get_effective_body(argv, hmap)
+        if body is _ALLOW:
+            continue  # uninspectable source (stdin / missing file) — passthrough
         if CALLER_CHAIN_RE.search(_strip_fenced_blocks(body)):
             continue  # evidence present
         sys.stderr.write(BLOCK_MSG)
