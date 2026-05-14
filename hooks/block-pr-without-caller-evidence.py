@@ -16,7 +16,13 @@ Allow conditions:
   3. --template/-T without --body/-b (interactive fill-in; body filled after)
   4. Effective body contains /^Caller chain verified:[ \\t]*\\S/i
   5. --body-file - (stdin; cannot inspect — allow with passthrough)
-  6. --body-file <path> where file does not exist (gh itself handles the error)
+
+Block conditions for --body-file <path>:
+  - Path missing at PreToolUse time → treated as empty body so the marker
+    check fires. This closes the `cat <<EOF > /tmp/body.md && gh pr create
+    --body-file /tmp/body.md` cascade bypass, where the redirect side-effect
+    has not run yet and the file does not exist at hook time.
+  - Path readable but content has no marker → block (standard case).
 
 Accepted line forms (all satisfy condition 4):
   Caller chain verified: grep found 3 callers in src/providers/
@@ -26,7 +32,9 @@ Accepted line forms (all satisfy condition 4):
 
 Body sources resolved (in order):
   --body / -b  →  literal value or $VAR from earlier assignment
-  --body-file PATH  →  file read; missing file → passthrough (allow)
+  --body-file PATH  →  file read if present; missing/unreadable → empty body
+                       (falls through to marker check; blocks unless inline
+                       marker also present)
 
 Note: env/sudo/command prefix wrappers are transparent via strip_prefix().
 """
@@ -97,6 +105,20 @@ def _resolve_vars(s: str, hmap: dict[str, str]) -> str:
 _ALLOW: None = None  # sentinel: skip block check for this invocation
 
 
+def _safe_read(p: Path) -> str:
+    """Read the file at p, returning empty string on any OS-level failure.
+
+    Advisory contract: hook infrastructure errors must fail open (block
+    check sees empty body, marker check fires unless inline marker exists).
+    A bare p.read_text() would raise OSError on permission-denied / TOCTOU
+    races / non-text encodings and crash the PreToolUse hook itself.
+    """
+    try:
+        return p.read_text()
+    except OSError:
+        return ""
+
+
 def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | None":
     """Return the effective PR body text, or _ALLOW if inspection must be skipped.
 
@@ -119,7 +141,7 @@ def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | None":
                 return _ALLOW  # stdin — cannot inspect
             p = Path(path).expanduser()
             if p.is_file():
-                parts.append(p.read_text())
+                parts.append(_safe_read(p))
             # missing file → empty contribution → falls through to marker check
         elif t.startswith("--body-file="):
             path = t.split("=", 1)[1]
@@ -127,7 +149,7 @@ def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | None":
                 return _ALLOW  # stdin — cannot inspect
             p = Path(path).expanduser()
             if p.is_file():
-                parts.append(p.read_text())
+                parts.append(_safe_read(p))
             # missing file → empty contribution → falls through to marker check
     return "\n".join(parts)
 
