@@ -164,6 +164,86 @@ content_case "TaskUpdate note says no subagent" TaskUpdate "no subagent was spaw
 content_case "TaskCreate note says false positives" TaskCreate "false positives"
 
 echo ""
+echo "=== builtin-task-postuse: dual-emission guard (issue #222) ==="
+
+# AC5: single invocation produces exactly ONE output object — never both
+# "no subagent was spawned" and "Multiple tasks delegated" in the same output.
+dual_emission_case() {
+  local name="$1" tool_name="$2"
+  local out
+  out=$(make_payload "$tool_name" | python3 "$HOOK" 2>/dev/null)
+
+  # count distinct JSON objects in output (each on its own line)
+  local obj_count
+  obj_count=$(echo "$out" | python3 -c "
+import sys, json
+lines = [l.strip() for l in sys.stdin if l.strip()]
+count = 0
+for l in lines:
+    try:
+        json.loads(l)
+        count += 1
+    except Exception:
+        pass
+print(count)
+" 2>/dev/null)
+
+  if [ "$obj_count" -gt 1 ]; then
+    echo "FAIL  [$name] emitted $obj_count JSON objects for a single invocation (expected ≤1)"
+    FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name"); return
+  fi
+
+  # also verify "Multiple tasks delegated" never appears alongside the correction note
+  if echo "$out" | grep -qi "Multiple tasks delegated"; then
+    echo "FAIL  [$name] 'Multiple tasks delegated' appeared — contradicts 'no subagent' path"
+    FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name"); return
+  fi
+
+  PASS=$((PASS + 1))
+  printf '  ✓ %s\n' "$name"
+}
+
+dual_emission_case "TaskCreate single output object" TaskCreate
+dual_emission_case "TaskUpdate single output object" TaskUpdate
+dual_emission_case "TaskStop single output object"   TaskStop
+
+echo ""
+echo "=== builtin-task-postuse: no cumulative counter across calls (issue #222) ==="
+
+# AC6: 5 consecutive invocations each produce output independently — output
+# from call N must be identical to output from call 1 (no N-accumulation).
+cumulative_no_leak_case() {
+  local name="$1" tool_name="$2"
+
+  local first_out
+  first_out=$(make_payload "$tool_name" | python3 "$HOOK" 2>/dev/null)
+
+  local ok=1
+  local i
+  for i in 2 3 4 5; do
+    local nth_out
+    nth_out=$(make_payload "$tool_name" | python3 "$HOOK" 2>/dev/null)
+    if [ "$nth_out" != "$first_out" ]; then
+      echo "FAIL  [$name] output on call $i differs from call 1 (counter drift)"
+      echo "       call 1: $first_out"
+      echo "       call $i: $nth_out"
+      FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name")
+      ok=0
+      break
+    fi
+  done
+
+  if [ "$ok" -eq 1 ]; then
+    PASS=$((PASS + 1))
+    printf '  ✓ %s\n' "$name"
+  fi
+}
+
+cumulative_no_leak_case "TaskCreate output stable across 5 calls" TaskCreate
+cumulative_no_leak_case "TaskUpdate output stable across 5 calls" TaskUpdate
+cumulative_no_leak_case "TaskGet output stable across 5 calls"    TaskGet
+
+echo ""
 echo "================================"
 echo "Results: $PASS passed, $FAIL failed"
 
