@@ -254,13 +254,27 @@ body line
 EOF
 # cross-boundary:ack'
 
-# Codex round 3 — attached heredoc after quoted argument
-# (`--title "foo bar"<<EOF`) tokenizes as `foo bar<<EOF`; the round-2 quoted-
-# token guard would skip this. Raw-command heredoc detection complements it.
-run_case "attached heredoc after quoted title still blocks" block \
-  'gh issue create --title "foo bar"<<EOF
-body
-EOF'
+# Codex round 3+4 known limitation: `--title "foo bar"<<EOF` tokenizes as
+# `foo bar<<EOF` (quoted-token guard skips it). The round-3 raw-command
+# heredoc detection was reverted in round 4 because it caused false positives
+# on legitimate var-heredoc and file-prep patterns (`BODY=$(cat <<EOF ... EOF);
+# gh ...`, `cat <<EOF > /tmp/body.md; gh issue create --body-file /tmp/body.md`).
+# Tracked as follow-up; for now we accept the narrow miss (heredoc attached
+# directly after a quoted argument value) to keep the hook usable.
+
+# Round 4 regression guard — var-heredoc on a different segment must pass.
+run_case "var-heredoc separate segment then gh body passes" pass \
+  'BODY=$(cat <<EOF
+some body
+EOF
+)
+gh issue create --title "t" --body "$BODY"'
+
+run_case "file-prep heredoc then gh body-file passes" pass \
+  'cat <<EOF > /tmp/body.md
+some body
+EOF
+gh issue create --title "t" --body-file /tmp/body.md'
 
 # Variable-assigned heredoc followed by gh pr create — heredoc in different segment
 run_case "var-heredoc then gh pr create passes" pass \

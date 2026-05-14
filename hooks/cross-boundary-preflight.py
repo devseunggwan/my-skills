@@ -273,11 +273,6 @@ def main() -> int:
     if not tokens:
         return 0
 
-    # Raw-command heredoc detection: complements per-argv `_has_heredoc` for
-    # attached redirects whose shlex tokenization buries `<<` inside a token
-    # containing internal spaces (e.g. `--title "foo bar"<<EOF`).
-    raw_heredoc_present = bool(_HEREDOC_BODY_RE.search(command))
-
     for argv in iter_command_starts(tokens):
         argv = list(argv)
         subcommand = _gh_write_subcommand(argv)
@@ -285,7 +280,7 @@ def main() -> int:
             continue
 
         # Check 1: heredoc in same segment → hard block (marker-independent)
-        if _has_heredoc(argv) or raw_heredoc_present:
+        if _has_heredoc(argv):
             sys.stderr.write(HEREDOC_BLOCK_MSG)
             return 2
 
