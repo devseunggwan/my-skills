@@ -133,16 +133,6 @@ _BULK_SUBSTRINGS_KO = (
     "모두 클로즈",
 )
 
-# Mutation verbs that qualify a bulk command as write-side (not read-only).
-# The goal is to avoid firing on `git log --all` / `gh pr list --all` etc.
-# We require that the command contains at least one of these mutation verbs
-# so that a plain `list all` or `show all` doesn't fire.
-_MUTATION_VERBS = re.compile(
-    r"\b(close|delete|remove|merge|reject|approve|push|drop|닫|삭제|머지|클로즈)\b",
-    re.IGNORECASE,
-)
-
-
 def _is_bulk_action_command(command: str) -> bool:
     """True if the Bash command contains a bulk-action mutation keyword."""
     if not command:
