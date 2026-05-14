@@ -96,8 +96,16 @@ the opt-out marker to the command:
 gh pr create --repo owner/repo --title "t" --body-file /tmp/b.md  # cross-boundary:ack
 ```
 
-Use only after manually verifying all four checklist items. The marker has
-no effect on HEREDOC_BODY — that pattern is always blocked regardless.
+Use only after manually verifying all four checklist items. Place the marker
+in the **shell command portion only** — on the same `gh` line or after the
+heredoc terminator, never inside the heredoc body. The heredoc body becomes
+the published artifact; a marker placed inside it leaks verbatim into the
+issue/PR text on the remote surface.
+
+The marker has no effect on HEREDOC_BODY — that pattern is always blocked
+regardless. When the `Write tool → --body-file` path is blocked by another
+guard, the block message (stderr) now lists the marker as a 3rd option with
+placement guidance.
 
 ### Relationship to sibling hooks
 
@@ -114,8 +122,10 @@ no effect on HEREDOC_BODY — that pattern is always blocked regardless.
 bash tests/test_cross_boundary_preflight.sh
 ```
 
-Covers 27 cases: 4 heredoc block paths, 12 cross-repo ask paths (including
-shorthand flags, chained commands, equals forms), 2 ask-detail checks
-(caller chain item present/absent by subcommand), 9 pass paths (no-repo,
-read-only, non-gh, opt-out, variable-heredoc), 2 infrastructure (non-Bash
-passthrough, malformed JSON fail-open).
+Covers 35 cases: 7 heredoc block paths (4 original + 3 F2 regression), 12
+cross-repo ask paths (including shorthand flags, chained commands, equals
+forms, F1 regression), 2 ask-detail checks (caller chain item present/absent
+by subcommand), 1 block-msg content check (new ack-placement bullet present
+in stderr), 1 F2 false-positive guard, 9 pass paths (no-repo, read-only,
+non-gh, opt-out, variable-heredoc), 2 infrastructure (non-Bash passthrough,
+malformed JSON fail-open).

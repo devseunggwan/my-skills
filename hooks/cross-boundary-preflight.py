@@ -15,13 +15,18 @@ Related hooks that cover adjacent scenarios:
   block-pr-without-caller-evidence → gh pr create without Caller chain verified:
   pre-merge-approval-gate.sh       → gh pr merge without per-PR approval
 
-Opt-out: embed `# cross-boundary:ack` anywhere in the command after manually
-confirming all checklist items.
+Opt-out: embed `# cross-boundary:ack` in the shell command portion of the
+invocation (e.g., as a trailing comment on the `gh` line or after the heredoc
+terminator), NOT inside the heredoc body. The heredoc body becomes the
+published artifact — a marker placed there leaks into the issue/PR text on
+the remote surface. After manually confirming all checklist items, re-run
+with the marker in the command shell portion only.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -48,6 +53,26 @@ GH_WRITE_SUBCOMMANDS = frozenset({
 
 OPT_OUT_MARKER = "# cross-boundary:ack"
 
+# Heredoc body matcher used to strip body content before opt-out detection.
+# Pattern: `<<` (optionally `-`), optional quote around tag, the tag, any
+# remaining flags / redirects on that line, newline, body, then the tag alone
+# (possibly indented when `<<-` is used) on its own line.
+_HEREDOC_BODY_RE = re.compile(
+    r"<<-?\s*[\"']?(?P<tag>[A-Za-z0-9_]+)[\"']?[^\n]*\n"
+    r".*?^[\t ]*(?P=tag)\s*$",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def _strip_heredoc_bodies(command: str) -> str:
+    """Return command with all heredoc bodies removed.
+
+    Used to ensure `OPT_OUT_MARKER` placed inside a heredoc body — which
+    would otherwise leak into the published artifact — does not satisfy the
+    opt-out check. Only markers in the shell command portion remain visible.
+    """
+    return _HEREDOC_BODY_RE.sub("", command)
+
 HEREDOC_BLOCK_MSG = """\
 ❌ BLOCKED: heredoc (`<<`) in `gh pr/issue create`.
 
@@ -62,6 +87,15 @@ Correct pattern:
   2. Pass via --body-file:
        gh issue create --title "..." --body-file /tmp/issue-body.md
        gh pr create    --title "..." --body-file /tmp/pr-body.md
+
+  3. If the Write-tool + --body-file path is itself blocked by another guard,
+     use `# cross-boundary:ack` to bypass the ASK gate after manually
+     confirming all checklist items. Place the marker in the shell command
+     portion ONLY — on the same `gh` line or after the heredoc terminator,
+     never inside the heredoc body. The heredoc body becomes the published
+     artifact; a marker inside it leaks verbatim into the issue/PR text on
+     the remote surface.
+       gh pr create --title "..." --body-file /tmp/b.md  # cross-boundary:ack
 """
 
 
@@ -144,20 +178,18 @@ def _has_heredoc(argv: list[str]) -> bool:
     for tok in argv:
         if "<<" not in tok:
             continue
+        # Quoted-string guard: shlex strips quotes but preserves internal
+        # spaces. A token containing a space cannot be an unquoted shell
+        # word, so `<<` inside it is a literal (e.g. `--body "code: a<<b"`
+        # tokenizes as `code: a<<b`). Skip such tokens entirely.
+        if " " in tok:
+            continue
         # Case 1: token starts with '<<' (space-separated redirect)
         if tok.startswith("<<"):
             return True
         # Case 2: '<<' embedded in token without surrounding spaces
         # (attached redirect like 'foo<<EOF').
-        # Skip occurrences that are surrounded by spaces on both sides
-        # (literal comparison operator inside a formerly-quoted string).
-        idx = tok.find("<<")
-        while idx != -1:
-            left = tok[idx - 1] if idx > 0 else ""
-            right = tok[idx + 2] if idx + 2 < len(tok) else ""
-            if not (left == " " and right == " "):
-                return True
-            idx = tok.find("<<", idx + 1)
+        return True
     return False
 
 
@@ -229,8 +261,13 @@ def main() -> int:
     command = payload.get("tool_input", {}).get("command", "") or ""
     if not command.strip():
         return 0
-    if OPT_OUT_MARKER in command:
-        return 0
+
+    # OPT_OUT_MARKER is intentionally NOT consulted before the heredoc check —
+    # the marker is an opt-out for the cross-repo `--repo` checklist only,
+    # not for the heredoc hard-block. A heredoc-in-gh-write segment bypasses
+    # caller-chain evidence regardless of marker presence; treat both
+    # (marker-in-shell-portion) and (no-marker) the same way for heredocs.
+    opt_out_present = OPT_OUT_MARKER in _strip_heredoc_bodies(command)
 
     tokens = safe_tokenize(command.replace("\\\n", " "))
     if not tokens:
@@ -242,12 +279,15 @@ def main() -> int:
         if subcommand is None:
             continue
 
-        # Check 1: heredoc in same segment → hard block
+        # Check 1: heredoc in same segment → hard block (marker-independent)
         if _has_heredoc(argv):
             sys.stderr.write(HEREDOC_BLOCK_MSG)
             return 2
 
         # Check 2: --repo flag present → surface pre-flight checklist
+        # (opt-out marker, if any, skips the checklist here only)
+        if opt_out_present:
+            return 0
         has_repo, repo_val = _has_repo_flag(argv)
         if has_repo:
             _emit_ask(_build_checklist(subcommand, repo_val))

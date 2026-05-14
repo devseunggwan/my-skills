@@ -139,6 +139,29 @@ run_case_detail "issue create checklist no Caller chain item" \
   "body-file"
 
 # ---------------------------------------------------------------------------
+# Message content: new bullet 3 appears in HEREDOC_BLOCK_MSG stderr
+# ---------------------------------------------------------------------------
+
+run_case_block_msg() {
+  local name="$1" command="$2" needle="$3"
+  local out err_file err rc ok=1
+  err_file=$(mktemp)
+  out=$(mk_payload "$command" | "$HOOK" 2>"$err_file")
+  rc=$?; err=$(cat "$err_file"); rm -f "$err_file"
+  [ "$rc" -eq 2 ] || ok=0
+  echo "$err" | grep -qF "$needle" || ok=0
+  if [ "$ok" -eq 1 ]; then
+    echo "PASS  [block-msg] $name"; PASS=$((PASS+1))
+  else
+    echo "FAIL  [block-msg: missing '$needle'] $name"; FAIL=$((FAIL+1)); FAILED_NAMES+=("$name")
+  fi
+}
+
+run_case_block_msg "heredoc block msg contains ack placement note" \
+  'gh issue create --title "foo" <<EOF' \
+  "never inside the heredoc body"
+
+# ---------------------------------------------------------------------------
 # F1 regression: gh issue --repo X create (--repo between object and verb)
 # ---------------------------------------------------------------------------
 
@@ -195,6 +218,63 @@ run_case "git command" pass \
 
 run_case "opt-out marker" pass \
   'gh pr create --repo devseunggwan/praxis --title "t" --body-file /tmp/b.md  # cross-boundary:ack'
+
+# Codex #224: marker placed inside heredoc body must NOT be honored as opt-out.
+# Otherwise the marker leaks into the published artifact AND the hook bypasses
+# its block. The new _strip_heredoc_bodies sanitizes the command before the
+# OPT_OUT_MARKER lookup, so this case re-enters the heredoc block path.
+run_case "marker inside heredoc body is rejected as opt-out" block \
+  'gh issue create --title "t" <<EOF
+body line
+# cross-boundary:ack
+EOF'
+
+# Codex round 2 — numeric / single-char heredoc delimiter must also strip body
+# (regex now accepts [A-Za-z0-9_]+ instead of identifier-only).
+run_case "numeric heredoc delimiter: marker in body still blocks" block \
+  'gh issue create --title "t" <<1
+body line
+# cross-boundary:ack
+1'
+
+# Codex round 2 — `<<` literal inside quoted body must NOT trigger heredoc
+# block (quoted-string false positive). shlex preserves internal spaces,
+# so tokens with spaces are necessarily quoted; their `<<` is literal.
+# Use --repo + ask expectation so cross-boundary checklist still surfaces,
+# proving the heredoc-block path did NOT fire on this command.
+run_case "quoted body containing << literal does not block" ask \
+  'gh issue create --repo devseunggwan/praxis --title "t" --body "code: a<<b"'
+
+# Codex round 3 — opt-out marker placed in shell command portion must NOT
+# bypass the heredoc hard-block. The marker only opts out of the cross-repo
+# checklist; heredoc bypasses caller-chain evidence regardless of marker.
+run_case "marker outside heredoc body does not bypass heredoc block" block \
+  'gh issue create --title "t" <<EOF
+body line
+EOF
+# cross-boundary:ack'
+
+# Codex round 3+4 known limitation: `--title "foo bar"<<EOF` tokenizes as
+# `foo bar<<EOF` (quoted-token guard skips it). The round-3 raw-command
+# heredoc detection was reverted in round 4 because it caused false positives
+# on legitimate var-heredoc and file-prep patterns (`BODY=$(cat <<EOF ... EOF);
+# gh ...`, `cat <<EOF > /tmp/body.md; gh issue create --body-file /tmp/body.md`).
+# Tracked as follow-up; for now we accept the narrow miss (heredoc attached
+# directly after a quoted argument value) to keep the hook usable.
+
+# Round 4 regression guard — var-heredoc on a different segment must pass.
+run_case "var-heredoc separate segment then gh body passes" pass \
+  'BODY=$(cat <<EOF
+some body
+EOF
+)
+gh issue create --title "t" --body "$BODY"'
+
+run_case "file-prep heredoc then gh body-file passes" pass \
+  'cat <<EOF > /tmp/body.md
+some body
+EOF
+gh issue create --title "t" --body-file /tmp/body.md'
 
 # Variable-assigned heredoc followed by gh pr create — heredoc in different segment
 run_case "var-heredoc then gh pr create passes" pass \
