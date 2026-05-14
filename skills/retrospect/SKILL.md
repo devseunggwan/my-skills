@@ -424,6 +424,59 @@ For each finding, present:
 1. **What will be created** (file path, issue title, hook name, or CLAUDE.md rule text)
 2. **Why this action type** (escalation rationale — e.g., "Already recorded 3x in MEMORY.md")
 3. **How it will be verified** (what check confirms it works)
+4. **Stage 2 caveats carried forward** (MANDATORY when any of the following hold) — emit a literal `Stage 2 caveats:` line listing each item that applies to this finding. Omit the entire line only when none of the items apply.
+   - `tracer confidence: LOW|MED` — tracer agent (Stage 2 step 1) returned anything below HIGH on this finding's causal chain
+   - `single observation` — only 1 friction-event citation supports this finding (Stage 2.5 Gate-3 (c) precondition)
+   - `alternative root cause not ruled out: <description>` — tracer/analyst surfaced ≥1 competing root cause that was not falsified
+   - `Gate-3 (c) downgrade applied: <original> → <new>` — Stage 2.5 downgraded the action tier
+   - `Gate-3 (b) sibling demoted to trigger: <demoted_action>` — Stage 2.5 split a decision-coupled pair into kept + trigger
+   - `repeat=true, resolved=true (escape hatch)` — existing resolution covers this; verify before re-acting
+   - `analyst clustered with #N` — analyst agent (Stage 2 step 2) clustered this with another finding whose Proposed Actions differ
+  Stage 3 ranking (including `(Recommended)` selection in the next sub-section) MUST read these caveats. A `(Recommended)` label cannot be applied to an action whose Stage 2 caveats include `tracer confidence: LOW`, `single observation` alone, or `alternative root cause not ruled out` — those caveats must be discharged via the Pre-Output Falsification Gate below before ranking.
+
+#### Pre-Output Falsification Gate (AskUserQuestion)
+
+This gate fires immediately before each `AskUserQuestion` call emitted by Stage 3 for any finding. It is normative — skipping it for the same finding more than once per Stage 3 turn is a Red Flag.
+
+**Trigger detection (scan every option label and surrounding framing):**
+
+- Literal `(Recommended)` suffix on any option label
+- Confidence-anchoring framing in option label or description: `safer`, `safest`, `natural fit`, `natural choice`, `obvious choice`, `clearly`, `안전한`, `자연스러운`, `당연히`, `분명히`
+- Synonymous ranking signals: `default to`, `default choice`, `prefer this`, `recommend`, `추천`, `기본값`
+
+If ANY trigger matches → the gate fires. The first option's mere position is NOT a trigger; only labels and framing are.
+
+**Mandatory pre-output question (internal to the skill, not surfaced to user):**
+
+> "If this proposal's premise is wrong, what observation should be *missing* from the current evidence? Is that observation actually missing?"
+
+Concretely, for each `(Recommended)`-labeled option, derive:
+
+1. The proposal's premise in one sentence (e.g., "this friction's root cause is in Claude's behavior, addressable via memory entry")
+2. The disconfirming observation that would make the premise false (e.g., "if upstream tool defect is the real root cause, the friction recurs even when Claude follows the proposed memory rule perfectly")
+3. Whether that disconfirming observation is actually missing in Stage 2 evidence — read the finding's `category[]`, `Tool Layer`, root cause text, and Stage 2 caveats (above) to check
+
+**Outcome rules:**
+
+| Falsification outcome | Action |
+|---|---|
+| Premise survives — disconfirming observation IS missing in Stage 2 evidence | `(Recommended)` label allowed; emit one-line falsification trace in the per-finding plan: `Falsification: premise survived — <disconfirming observation> was not present in Stage 2 evidence (category=<...>, Tool Layer=<...>, root cause=<one-line>)` |
+| Premise fails — disconfirming observation IS present | `(Recommended)` label DISALLOWED; surface the option as unranked alongside siblings; record `Falsification: premise failed — <disconfirming observation> present, surfacing unranked` |
+| Falsification step not run (e.g., skill skipped this gate) | `(Recommended)` label DISALLOWED; ESCALATE to user with open premise: `AskUserQuestion` MUST include a question line asking the user to confirm the premise before any ranked option is offered |
+
+**The gate composes with Stage 2 caveats (above):**
+
+- `tracer confidence: LOW` → falsification cannot mark "premise survives" without explicit disconfirming-observation check (LOW confidence IS itself a present disconfirming signal until shown otherwise)
+- `single observation` + `repeat=false` → falsification must explicitly state whether the single observation is dispositive; if dispositive evidence absent, downgrade to unranked
+- `alternative root cause not ruled out` → premise fails by construction; surface unranked
+
+**Skip conditions (gate does NOT fire):**
+
+- Zero `(Recommended)` labels AND zero confidence-anchoring phrases in the entire Stage 3 output (the trigger scan finds nothing)
+- Stage 3 emits the "No patterns found. ✅" early exit per Stage 2 step 7
+- All findings are `note only` (one-off mistakes — no ranking needed)
+
+The gate's outcome MUST appear as a `Falsification:` line in the per-finding plan immediately under the `Stage 2 caveats:` line (or replace it when `Stage 2 caveats:` is omitted). Reviewers and downstream parsers anchor on this exact prefix.
 
 Example (single action — repeat pattern):
 > Finding #2: Workflow step skipped (4th occurrence)
@@ -431,6 +484,8 @@ Example (single action — repeat pattern):
 > - **Rationale**: Already recorded 3x in MEMORY.md. Memory alone has failed. Structural fix required.
 > - **What will be created**: issue — `feat(hook): add external-repo commit guard`
 > - **Verify**: issue URL returned + `gh issue view` confirms existence
+> - **Stage 2 caveats**: (none — tracer confidence HIGH, repeat=true with 4 observations)
+> - **Falsification**: premise survived — disconfirming observation would be "memory rule prevented step skip in ≥1 prior session"; Stage 2 MEMORY.md scan found no such evidence in any of the 3 prior memory entries
 
 Example (compound action — rule gap + repeat):
 > Finding #1 (HIGH): Hasty interpretation without verification (ambiguous signal → worst-case conclusion, 3 occurrences)
@@ -440,6 +495,17 @@ Example (compound action — rule gap + repeat):
 >   - CLAUDE.md draft: new rule requiring a disconfirmation check before concluding from ambiguous signals
 >   - issue — `feat(retrospect): enforce falsify-first check on ambiguous signal interpretation`
 > - **Verify**: CLAUDE.md draft shown to user for approval + issue URL returned
+> - **Stage 2 caveats**: analyst clustered with Finding #4 (same root cause family); evaluate combined fix scope before executing
+> - **Falsification**: premise survived for `CLAUDE.md draft` — if the rule already existed in another section, the 3× repeat would show citations to that rule rather than rule-absent rationale; Stage 2 step 4 confirmed no applicable rule (category=spec-gap)
+
+Example (gate-suppressed `(Recommended)`):
+> Finding #3 (MED): MCP timeout caused 3 retries (single occurrence in this session)
+> - **Proposed Actions**: `upstream_feedback`
+> - **Rationale**: Tool defect surfaced at step 4b — performance issue.<br>backing_repo: `<resolved_backing_repo>`
+> - **What will be created**: issue in the resolved backing repo — `perf(<plugin>): reduce MCP timeout on <op>`
+> - **Verify**: `gh issue view {url}` succeeds + URL repo matches resolved backing repo
+> - **Stage 2 caveats**: `single observation`; `tracer confidence: MED`; `alternative root cause not ruled out: transient network blip`
+> - **Falsification**: premise failed — `(Recommended)` label suppressed. Disconfirming observation IS present (single timeout indistinguishable from transient blip without a second sample). Option surfaced unranked; AskUserQuestion includes premise-confirmation line: "이 timeout이 패턴인지 단발 blip인지 추가 관찰 전에 upstream 이슈를 열까요?"
 
 **Then ask for approval per item using AskUserQuestion:**
 
@@ -634,6 +700,9 @@ If you catch yourself:
 - **`Proposed Actions` count = 2 인데 두 action 이 decision-coupled (한 쪽이 다른 쪽이 묻는 질문을 이미 결정)** — Gate-3 (b) 위반. 둘 다 실행하면 상호 모순 상태가 만들어지며, `upstream_feedback` 측이 외부 레포에 빈 질문을 남기는 노이즈가 발생한다. 강한 evidence 쪽을 유지하고 약한 쪽은 trigger condition으로 강등.
 - **2-action finding 의 각 action 이 ≥1 friction-event observation 을 인용하지 않음** — Gate-3 (a) 위반. Category-default form-filling만으로 만들어진 action 은 evidence-based delivery 원칙과 충돌하며, 첫 번째 action 이 이미 수행한 결정을 두 번째가 반복-질문하는 redundancy 의 전형적 신호.
 - **Surfacing an option as `(Recommended)` or default without running a disconfirming test on the recommendation's own premise** — premise verification at HIGH-confidence lock is mandatory. The user's push-back is a trailing signal; pre-emptive self-falsification is the correct path. (Pairs with the upstream `Falsify Before Fix` global rule.)
+- **Emitting `AskUserQuestion` with a `(Recommended)` label or confidence-anchoring framing (`safer` / `natural fit` / `안전한` / `자연스러운`) without an accompanying `Falsification:` trace line in the per-finding plan** — Stage 3 Pre-Output Falsification Gate violation. The label asserts ranking confidence that wasn't earned; downstream readers (user, hooks, retrospect parsers) cannot tell whether the premise was tested. If the gate didn't run, drop the label and surface the option unranked.
+- **Stage 3 ranking that contradicts Stage 2 caveats** — e.g., `(Recommended)` applied to an action whose Stage 2 row carries `tracer confidence: LOW`, `single observation` alone, or `alternative root cause not ruled out`. Stage 2's caveat is the leading signal; Stage 3 must carry it forward (`Stage 2 caveats:` line) and either discharge it via falsification or suppress the recommendation.
+- **Omitting the `Stage 2 caveats:` line on a finding that has any of: tracer confidence below HIGH, single observation, alternative root cause not ruled out, Gate-3 downgrade, analyst cluster overlap, escape-hatch state** — carry-forward is mandatory whenever ANY of these holds. Silent omission lets Stage 3 rank as if Stage 2 returned clean HIGH-confidence evidence.
 - **조사 도구 결과를 completeness 검증 없이 결론에 사용 (premise unverified)** — 다음 두 패턴 모두 "premise falsified" (반증 테스트를 설계한 뒤 통과 → 진행 가능)가 아니라 "premise unverified" (도구 출력 자체의 한계를 검증하지 않은 채 결론에 사용 → STOP) 에 해당한다: (a) `find ... | head -N` 결과로 "파일/모듈 없음" 단정 — **`head` 를 제거한 원 명령 `find ... | wc -l` 을 별도로 실행**해 총 라인 수를 확인하고, cap 초과 시 cap 제거 또는 `grep -rn <token>` narrowing 필요 (`head -N` 파이프 뒤에 `| wc -l` 을 붙이면 cap 으로 잘린 뒤의 라인 수만 세므로 정확히 N개와 cap 초과를 구분할 수 없어 검증이 실패한다); (b) `find <path>` 빈 결과로 "경로/모듈 없음" 단정 — `ls <parent>` 로 path coverage 를 확인하거나 상위 경로로 재시도, 또는 `grep -rn <token>` cross-check 필요.
 
 **ALL of these mean: STOP. Return to Stage 2.**
@@ -645,7 +714,7 @@ If you catch yourself:
 | **1. Load** | Read CLAUDE.md, form scan questions | Rule categories identified |
 | **2. Analyze** | Scan conversation, map to rules, find root cause | Root cause (not symptom) for each pattern; every event has `category[]` |
 | **2.5 Audit** | Run Gate-1 (categorical) + Gate-2 (5-line rationale schema) + Gate-3 (evidence robustness for 2-action findings) | All applicable gates PASS or per-finding cap reached and surfaced to user |
-| **3. Report** | Present unified table + distribution card, collect approval per item | User approved at least 1 item (or confirmed 0 findings) |
+| **3. Report** | Present unified table + distribution card, carry Stage 2 caveats forward, run Pre-Output Falsification Gate before each `AskUserQuestion`, collect approval per item | User approved at least 1 item (or confirmed 0 findings); every `(Recommended)` label has a `Falsification:` trace |
 | **4. Execute** | Run approved actions, verify artifacts | Completion report with links/paths + verification results |
 
 ## Error Handling
@@ -664,6 +733,8 @@ If you catch yourself:
 | Stage 2.5 (audit) | Gate-3 violation persists after 2 per-finding re-entries | Surface to user with 3-way override prompt (`[a] rationale 직접 입력 / [b] action 직접 지정 / [c] note only 강등`); log selection |
 | Stage 2.5 (audit) | Gate-3 (c) downgrade collapses action set to memory-only on a tool/workflow/spec-gap finding | Re-trigger Gate-1; counts toward the per-finding loop cap of 2 |
 | Stage 2.5 (audit) | Behavioral-only safeguard triggered (tool keywords detected in pre-scan signals) | Surface to user; require explicit confirmation before proceeding to Stage 3 |
+| Stage 3 (report) | Pre-Output Falsification Gate triggered but premise cannot be falsified or survives only ambiguously | Drop `(Recommended)` label; surface option unranked; emit explicit premise-confirmation line in `AskUserQuestion` per the gate's "Falsification step not run" row |
+| Stage 3 (report) | Finding lacks Stage 2 caveats line despite tracer confidence below HIGH or single-observation flag | Block Stage 3 emission for that finding; return to Stage 2 step 5 (root cause refinement) or Stage 2.5 Gate-3 (c) (single-observation downgrade) and re-derive |
 | Stage 3 (report) | User rejects all findings | Capture the rejection itself as a feedback signal for future retrospects |
 | Stage 4 (execute) | MEMORY.md write fails | Report the path error; never silently drop the feedback |
 | Stage 4 (execute) | GitHub issue creation fails | Fall back to saving a note in `.omc/plans/` for later manual creation |
