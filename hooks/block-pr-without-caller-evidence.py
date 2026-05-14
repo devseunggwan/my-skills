@@ -100,10 +100,12 @@ _ALLOW: None = None  # sentinel: skip block check for this invocation
 def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | None":
     """Return the effective PR body text, or _ALLOW if inspection must be skipped.
 
-    _ALLOW is returned when --body-file - (stdin) is encountered, or when a
-    --body-file path does not exist on disk.  In both cases the hook cannot
-    inspect the content; the invocation is allowed and gh itself handles any
-    subsequent error (e.g. missing file).
+    _ALLOW is returned only for --body-file - (stdin), which is genuinely
+    uninspectable.  A missing --body-file path is treated as empty body (the
+    block check then fires unless an inline marker is present); this prevents
+    `cat <<EOF > /tmp/body.md && gh pr create --body-file /tmp/body.md`
+    compound patterns from bypassing the evidence gate at PreToolUse time
+    (the redirect side-effect has not executed yet).
     """
     parts: list[str] = []
     for i, t in enumerate(argv):
@@ -116,17 +118,17 @@ def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | None":
             if path == "-":
                 return _ALLOW  # stdin — cannot inspect
             p = Path(path).expanduser()
-            if not p.exists():
-                return _ALLOW  # file missing — let gh handle the error
-            parts.append(p.read_text())
+            if p.is_file():
+                parts.append(p.read_text())
+            # missing file → empty contribution → falls through to marker check
         elif t.startswith("--body-file="):
             path = t.split("=", 1)[1]
             if path == "-":
                 return _ALLOW  # stdin — cannot inspect
             p = Path(path).expanduser()
-            if not p.exists():
-                return _ALLOW  # file missing — let gh handle the error
-            parts.append(p.read_text())
+            if p.is_file():
+                parts.append(p.read_text())
+            # missing file → empty contribution → falls through to marker check
     return "\n".join(parts)
 
 

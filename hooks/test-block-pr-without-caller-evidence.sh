@@ -168,9 +168,20 @@ run_case "body-file without marker" block Bash \
 run_case "inline body with marker regression" pass Bash \
   'gh pr create --body "Caller chain verified: inline check"'
 
-# (d) body-file path does not exist → allow (passthrough; gh handles file error)
-run_case "body-file nonexistent path" pass Bash \
+# (d) body-file path does not exist → BLOCK (Codex #226: missing-file allow
+# created a bypass for `cat <<EOF > /tmp/x && gh pr create --body-file /tmp/x`
+# compound patterns, since the redirect side-effect has not run at PreToolUse
+# time. Treat missing file as empty body so the marker check fires.)
+run_case "body-file nonexistent path blocks" block Bash \
   'gh pr create --title "fix: x" --body-file /tmp/does-not-exist-praxis-220.md'
+
+# (d') compound bash redirect-then-pr-create with no marker → BLOCK (regression
+# guard for the exact bypass pattern Codex flagged).
+run_case "compound redirect then pr create no marker" block Bash \
+  'cat <<EOF > /tmp/does-not-exist-praxis-220.md
+body without marker
+EOF
+gh pr create --title "fix: x" --body-file /tmp/does-not-exist-praxis-220.md'
 
 # (e) body-file stdin dash → allow
 run_case "body-file stdin dash" pass Bash \
