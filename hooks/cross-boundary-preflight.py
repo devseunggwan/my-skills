@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -51,6 +52,26 @@ GH_WRITE_SUBCOMMANDS = frozenset({
 })
 
 OPT_OUT_MARKER = "# cross-boundary:ack"
+
+# Heredoc body matcher used to strip body content before opt-out detection.
+# Pattern: `<<` (optionally `-`), optional quote around tag, the tag, any
+# remaining flags / redirects on that line, newline, body, then the tag alone
+# (possibly indented when `<<-` is used) on its own line.
+_HEREDOC_BODY_RE = re.compile(
+    r"<<-?\s*[\"']?(?P<tag>[A-Za-z_][A-Za-z0-9_]*)[\"']?[^\n]*\n"
+    r".*?^[\t ]*(?P=tag)\s*$",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def _strip_heredoc_bodies(command: str) -> str:
+    """Return command with all heredoc bodies removed.
+
+    Used to ensure `OPT_OUT_MARKER` placed inside a heredoc body — which
+    would otherwise leak into the published artifact — does not satisfy the
+    opt-out check. Only markers in the shell command portion remain visible.
+    """
+    return _HEREDOC_BODY_RE.sub("", command)
 
 HEREDOC_BLOCK_MSG = """\
 ❌ BLOCKED: heredoc (`<<`) in `gh pr/issue create`.
@@ -242,7 +263,7 @@ def main() -> int:
     command = payload.get("tool_input", {}).get("command", "") or ""
     if not command.strip():
         return 0
-    if OPT_OUT_MARKER in command:
+    if OPT_OUT_MARKER in _strip_heredoc_bodies(command):
         return 0
 
     tokens = safe_tokenize(command.replace("\\\n", " "))

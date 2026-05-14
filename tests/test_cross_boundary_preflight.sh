@@ -219,6 +219,16 @@ run_case "git command" pass \
 run_case "opt-out marker" pass \
   'gh pr create --repo devseunggwan/praxis --title "t" --body-file /tmp/b.md  # cross-boundary:ack'
 
+# Codex #224: marker placed inside heredoc body must NOT be honored as opt-out.
+# Otherwise the marker leaks into the published artifact AND the hook bypasses
+# its block. The new _strip_heredoc_bodies sanitizes the command before the
+# OPT_OUT_MARKER lookup, so this case re-enters the heredoc block path.
+run_case "marker inside heredoc body is rejected as opt-out" block \
+  'gh issue create --title "t" <<EOF
+body line
+# cross-boundary:ack
+EOF'
+
 # Variable-assigned heredoc followed by gh pr create — heredoc in different segment
 run_case "var-heredoc then gh pr create passes" pass \
   'gh pr create --title "t" --body "$BODY"'
