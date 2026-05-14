@@ -58,7 +58,7 @@ OPT_OUT_MARKER = "# cross-boundary:ack"
 # remaining flags / redirects on that line, newline, body, then the tag alone
 # (possibly indented when `<<-` is used) on its own line.
 _HEREDOC_BODY_RE = re.compile(
-    r"<<-?\s*[\"']?(?P<tag>[A-Za-z_][A-Za-z0-9_]*)[\"']?[^\n]*\n"
+    r"<<-?\s*[\"']?(?P<tag>[A-Za-z0-9_]+)[\"']?[^\n]*\n"
     r".*?^[\t ]*(?P=tag)\s*$",
     re.MULTILINE | re.DOTALL,
 )
@@ -178,20 +178,18 @@ def _has_heredoc(argv: list[str]) -> bool:
     for tok in argv:
         if "<<" not in tok:
             continue
+        # Quoted-string guard: shlex strips quotes but preserves internal
+        # spaces. A token containing a space cannot be an unquoted shell
+        # word, so `<<` inside it is a literal (e.g. `--body "code: a<<b"`
+        # tokenizes as `code: a<<b`). Skip such tokens entirely.
+        if " " in tok:
+            continue
         # Case 1: token starts with '<<' (space-separated redirect)
         if tok.startswith("<<"):
             return True
         # Case 2: '<<' embedded in token without surrounding spaces
         # (attached redirect like 'foo<<EOF').
-        # Skip occurrences that are surrounded by spaces on both sides
-        # (literal comparison operator inside a formerly-quoted string).
-        idx = tok.find("<<")
-        while idx != -1:
-            left = tok[idx - 1] if idx > 0 else ""
-            right = tok[idx + 2] if idx + 2 < len(tok) else ""
-            if not (left == " " and right == " "):
-                return True
-            idx = tok.find("<<", idx + 1)
+        return True
     return False
 
 

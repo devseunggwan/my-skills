@@ -229,6 +229,22 @@ body line
 # cross-boundary:ack
 EOF'
 
+# Codex round 2 — numeric / single-char heredoc delimiter must also strip body
+# (regex now accepts [A-Za-z0-9_]+ instead of identifier-only).
+run_case "numeric heredoc delimiter: marker in body still blocks" block \
+  'gh issue create --title "t" <<1
+body line
+# cross-boundary:ack
+1'
+
+# Codex round 2 — `<<` literal inside quoted body must NOT trigger heredoc
+# block (quoted-string false positive). shlex preserves internal spaces,
+# so tokens with spaces are necessarily quoted; their `<<` is literal.
+# Use --repo + ask expectation so cross-boundary checklist still surfaces,
+# proving the heredoc-block path did NOT fire on this command.
+run_case "quoted body containing << literal does not block" ask \
+  'gh issue create --repo devseunggwan/praxis --title "t" --body "code: a<<b"'
+
 # Variable-assigned heredoc followed by gh pr create — heredoc in different segment
 run_case "var-heredoc then gh pr create passes" pass \
   'gh pr create --title "t" --body "$BODY"'
