@@ -94,10 +94,10 @@ def _resolve_vars(s: str, hmap: dict[str, str]) -> str:
     return _VAR_RE.sub(sub, s)
 
 
-_ALLOW = object()  # sentinel: skip block check for this invocation
+_ALLOW: None = None  # sentinel: skip block check for this invocation
 
 
-def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | object":
+def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | None":
     """Return the effective PR body text, or _ALLOW if inspection must be skipped.
 
     _ALLOW is returned when --body-file - (stdin) is encountered, or when a
@@ -230,7 +230,7 @@ def main() -> int:
         if _uses_template_without_body(argv):
             continue  # interactive template fill-in
         body = _get_effective_body(argv, hmap)
-        if body is _ALLOW:
+        if body is None:
             continue  # uninspectable source (stdin / missing file) — passthrough
         if CALLER_CHAIN_RE.search(_strip_fenced_blocks(body)):
             continue  # evidence present
