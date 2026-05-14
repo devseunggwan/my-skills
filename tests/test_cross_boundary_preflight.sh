@@ -245,6 +245,23 @@ body line
 run_case "quoted body containing << literal does not block" ask \
   'gh issue create --repo devseunggwan/praxis --title "t" --body "code: a<<b"'
 
+# Codex round 3 — opt-out marker placed in shell command portion must NOT
+# bypass the heredoc hard-block. The marker only opts out of the cross-repo
+# checklist; heredoc bypasses caller-chain evidence regardless of marker.
+run_case "marker outside heredoc body does not bypass heredoc block" block \
+  'gh issue create --title "t" <<EOF
+body line
+EOF
+# cross-boundary:ack'
+
+# Codex round 3 — attached heredoc after quoted argument
+# (`--title "foo bar"<<EOF`) tokenizes as `foo bar<<EOF`; the round-2 quoted-
+# token guard would skip this. Raw-command heredoc detection complements it.
+run_case "attached heredoc after quoted title still blocks" block \
+  'gh issue create --title "foo bar"<<EOF
+body
+EOF'
+
 # Variable-assigned heredoc followed by gh pr create — heredoc in different segment
 run_case "var-heredoc then gh pr create passes" pass \
   'gh pr create --title "t" --body "$BODY"'

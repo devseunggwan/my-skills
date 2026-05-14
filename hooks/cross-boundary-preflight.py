@@ -261,12 +261,22 @@ def main() -> int:
     command = payload.get("tool_input", {}).get("command", "") or ""
     if not command.strip():
         return 0
-    if OPT_OUT_MARKER in _strip_heredoc_bodies(command):
-        return 0
+
+    # OPT_OUT_MARKER is intentionally NOT consulted before the heredoc check —
+    # the marker is an opt-out for the cross-repo `--repo` checklist only,
+    # not for the heredoc hard-block. A heredoc-in-gh-write segment bypasses
+    # caller-chain evidence regardless of marker presence; treat both
+    # (marker-in-shell-portion) and (no-marker) the same way for heredocs.
+    opt_out_present = OPT_OUT_MARKER in _strip_heredoc_bodies(command)
 
     tokens = safe_tokenize(command.replace("\\\n", " "))
     if not tokens:
         return 0
+
+    # Raw-command heredoc detection: complements per-argv `_has_heredoc` for
+    # attached redirects whose shlex tokenization buries `<<` inside a token
+    # containing internal spaces (e.g. `--title "foo bar"<<EOF`).
+    raw_heredoc_present = bool(_HEREDOC_BODY_RE.search(command))
 
     for argv in iter_command_starts(tokens):
         argv = list(argv)
@@ -274,12 +284,15 @@ def main() -> int:
         if subcommand is None:
             continue
 
-        # Check 1: heredoc in same segment → hard block
-        if _has_heredoc(argv):
+        # Check 1: heredoc in same segment → hard block (marker-independent)
+        if _has_heredoc(argv) or raw_heredoc_present:
             sys.stderr.write(HEREDOC_BLOCK_MSG)
             return 2
 
         # Check 2: --repo flag present → surface pre-flight checklist
+        # (opt-out marker, if any, skips the checklist here only)
+        if opt_out_present:
+            return 0
         has_repo, repo_val = _has_repo_flag(argv)
         if has_repo:
             _emit_ask(_build_checklist(subcommand, repo_val))
