@@ -139,6 +139,29 @@ run_case_detail "issue create checklist no Caller chain item" \
   "body-file"
 
 # ---------------------------------------------------------------------------
+# Message content: new bullet 3 appears in HEREDOC_BLOCK_MSG stderr
+# ---------------------------------------------------------------------------
+
+run_case_block_msg() {
+  local name="$1" command="$2" needle="$3"
+  local out err_file err rc ok=1
+  err_file=$(mktemp)
+  out=$(mk_payload "$command" | "$HOOK" 2>"$err_file")
+  rc=$?; err=$(cat "$err_file"); rm -f "$err_file"
+  [ "$rc" -eq 2 ] || ok=0
+  echo "$err" | grep -qF "$needle" || ok=0
+  if [ "$ok" -eq 1 ]; then
+    echo "PASS  [block-msg] $name"; PASS=$((PASS+1))
+  else
+    echo "FAIL  [block-msg: missing '$needle'] $name"; FAIL=$((FAIL+1)); FAILED_NAMES+=("$name")
+  fi
+}
+
+run_case_block_msg "heredoc block msg contains ack placement note" \
+  'gh issue create --title "foo" <<EOF' \
+  "never inside the heredoc body"
+
+# ---------------------------------------------------------------------------
 # F1 regression: gh issue --repo X create (--repo between object and verb)
 # ---------------------------------------------------------------------------
 

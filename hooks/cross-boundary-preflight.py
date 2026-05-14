@@ -15,8 +15,12 @@ Related hooks that cover adjacent scenarios:
   block-pr-without-caller-evidence → gh pr create without Caller chain verified:
   pre-merge-approval-gate.sh       → gh pr merge without per-PR approval
 
-Opt-out: embed `# cross-boundary:ack` anywhere in the command after manually
-confirming all checklist items.
+Opt-out: embed `# cross-boundary:ack` in the shell command portion of the
+invocation (e.g., as a trailing comment on the `gh` line or after the heredoc
+terminator), NOT inside the heredoc body. The heredoc body becomes the
+published artifact — a marker placed there leaks into the issue/PR text on
+the remote surface. After manually confirming all checklist items, re-run
+with the marker in the command shell portion only.
 """
 from __future__ import annotations
 
@@ -62,6 +66,15 @@ Correct pattern:
   2. Pass via --body-file:
        gh issue create --title "..." --body-file /tmp/issue-body.md
        gh pr create    --title "..." --body-file /tmp/pr-body.md
+
+  3. If the Write-tool + --body-file path is itself blocked by another guard,
+     use `# cross-boundary:ack` to bypass the ASK gate after manually
+     confirming all checklist items. Place the marker in the shell command
+     portion ONLY — on the same `gh` line or after the heredoc terminator,
+     never inside the heredoc body. The heredoc body becomes the published
+     artifact; a marker inside it leaks verbatim into the issue/PR text on
+     the remote surface.
+       gh pr create --title "..." --body-file /tmp/b.md  # cross-boundary:ack
 """
 
 
