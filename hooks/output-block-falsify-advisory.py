@@ -104,17 +104,14 @@ def _has_recommended_marker(labels: list[str]) -> bool:
 #
 # Strategy: search for the verb phrase with "all" nearby. Using a regex with
 # ASCII lookaround avoids `\b` issues when Korean text appears nearby.
-_BULK_PHRASES_EN = (
-    r"close\s+all",
-    r"delete\s+all",
-    r"merge\s+all",
-    r"reject\s+all",
-    r"approve\s+all",
-)
+_BULK_VERBS_EN = ("close", "delete", "merge", "reject", "approve")
 
-# Compiled pattern: any English bulk phrase (case-insensitive).
+# ASCII lookaround instead of `\b`: Python's `\b` is Unicode-aware and would
+# misfire when Korean text sits adjacent to ASCII (no boundary between Hangul
+# and ASCII word chars). Explicit ASCII boundaries prevent false matches like
+# `disclose all` / `enclose all` triggering on the `close all` substring.
 _BULK_PATTERN_EN = re.compile(
-    "|".join(_BULK_PHRASES_EN),
+    r"(?<![A-Za-z])(?:" + "|".join(_BULK_VERBS_EN) + r")\s+all(?![A-Za-z])",
     re.IGNORECASE,
 )
 
@@ -151,7 +148,7 @@ def _is_bulk_action_command(command: str) -> bool:
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+def _main_inner() -> int:
     try:
         payload = json.load(sys.stdin)
     except Exception:
@@ -173,14 +170,23 @@ def main() -> int:
             fire = True
 
     elif tool_name == "Bash":
-        command = tool_input.get("command") or ""
-        if _is_bulk_action_command(command):
+        command = tool_input.get("command")
+        if isinstance(command, str) and _is_bulk_action_command(command):
             fire = True
 
     if fire:
         sys.stderr.write(ADVISORY_MSG + "\n")
 
     return 0
+
+
+def main() -> int:
+    """Advisory hook — must NEVER break tool execution. Any uncaught exception
+    in the inner logic is swallowed and the hook fails open (exit 0)."""
+    try:
+        return _main_inner()
+    except Exception:
+        return 0
 
 
 if __name__ == "__main__":

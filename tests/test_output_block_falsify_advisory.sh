@@ -187,6 +187,16 @@ run_case "Bash: git log --all — --all flag but not a bulk mutation — silent 
   pass \
   "$(make_bash_payload 'git log --all --oneline')"
 
+# Codex #225 P3: word-boundary regression — `disclose all` / `enclose all`
+# must NOT match the `close all` substring.
+run_case "Bash: disclose all — word-boundary regression — silent pass" \
+  pass \
+  "$(make_bash_payload 'echo we will disclose all findings')"
+
+run_case "Bash: enclose all — word-boundary regression — silent pass" \
+  pass \
+  "$(make_bash_payload 'echo enclose all attachments in the email')"
+
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
@@ -202,6 +212,16 @@ run_case "Edge: empty JSON object — silent pass" \
 run_case "Edge: unknown tool_name — silent pass" \
   pass \
   "$(python3 -c 'import json; print(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "/tmp/x"}}))')"
+
+# Codex #225 P2: fail-open on non-string command (number instead of string).
+# Hook contract: advisory hooks NEVER break tool execution on malformed payloads.
+run_case "Edge: non-string command (int) — fail-open silent pass" \
+  pass \
+  '{"tool_name":"Bash","tool_input":{"command":123}}'
+
+run_case "Edge: non-string command (null) — fail-open silent pass" \
+  pass \
+  '{"tool_name":"Bash","tool_input":{"command":null}}'
 
 # ---------------------------------------------------------------------------
 # Summary
