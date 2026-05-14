@@ -15,9 +15,11 @@ Allow conditions:
   2. --repo/-R targets a different project (cross-project PR)
   3. --template/-T without --body/-b (interactive fill-in; body filled after)
   4. Effective body contains /^Caller chain verified:[ \\t]*\\S/i
-  5. --body-file - (stdin; cannot inspect — allow with passthrough)
 
-Block conditions for --body-file <path>:
+Block conditions for --body-file:
+  - `--body-file -` (stdin): the pipe content is uninspectable at PreToolUse
+    time. Treated as empty body → block fires unless inline --body marker
+    accompanies it. Allowing stdin bypassed the hard-gate (Codex round 3).
   - Path missing at PreToolUse time → treated as empty body so the marker
     check fires. This closes the `cat <<EOF > /tmp/body.md && gh pr create
     --body-file /tmp/body.md` cascade bypass, where the redirect side-effect
@@ -102,9 +104,6 @@ def _resolve_vars(s: str, hmap: dict[str, str]) -> str:
     return _VAR_RE.sub(sub, s)
 
 
-_ALLOW: None = None  # sentinel: skip block check for this invocation
-
-
 def _safe_read(p: Path) -> str:
     """Read the file at p, returning empty string on any OS-level failure.
 
@@ -119,15 +118,15 @@ def _safe_read(p: Path) -> str:
         return ""
 
 
-def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | None":
-    """Return the effective PR body text, or _ALLOW if inspection must be skipped.
+def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> str:
+    """Return the effective PR body text for marker inspection.
 
-    _ALLOW is returned only for --body-file - (stdin), which is genuinely
-    uninspectable.  A missing --body-file path is treated as empty body (the
-    block check then fires unless an inline marker is present); this prevents
-    `cat <<EOF > /tmp/body.md && gh pr create --body-file /tmp/body.md`
-    compound patterns from bypassing the evidence gate at PreToolUse time
-    (the redirect side-effect has not executed yet).
+    Uninspectable sources (stdin, missing file, unreadable file) contribute
+    empty string so the marker check fires and the block path triggers.
+    This closes hard-gate bypasses identified by Codex:
+      - stdin (`--body-file -`) — pipe content unknowable at PreToolUse time
+      - missing path — `cat <<EOF > /tmp/x && gh pr create --body-file /tmp/x`
+        cascade where the redirect side-effect has not yet executed
     """
     parts: list[str] = []
     for i, t in enumerate(argv):
@@ -138,7 +137,7 @@ def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | None":
         elif t == "--body-file" and i + 1 < len(argv):
             path = argv[i + 1]
             if path == "-":
-                return _ALLOW  # stdin — cannot inspect
+                continue  # stdin — empty contribution → fall through to block
             p = Path(path).expanduser()
             if p.is_file():
                 parts.append(_safe_read(p))
@@ -146,7 +145,7 @@ def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> "str | None":
         elif t.startswith("--body-file="):
             path = t.split("=", 1)[1]
             if path == "-":
-                return _ALLOW  # stdin — cannot inspect
+                continue  # stdin — empty contribution → fall through to block
             p = Path(path).expanduser()
             if p.is_file():
                 parts.append(_safe_read(p))
@@ -254,8 +253,6 @@ def main() -> int:
         if _uses_template_without_body(argv):
             continue  # interactive template fill-in
         body = _get_effective_body(argv, hmap)
-        if body is None:
-            continue  # uninspectable source (stdin / missing file) — passthrough
         if CALLER_CHAIN_RE.search(_strip_fenced_blocks(body)):
             continue  # evidence present
         sys.stderr.write(BLOCK_MSG)

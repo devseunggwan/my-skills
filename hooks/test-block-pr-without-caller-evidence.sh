@@ -183,9 +183,14 @@ body without marker
 EOF
 gh pr create --title "fix: x" --body-file /tmp/does-not-exist-praxis-220.md'
 
-# (e) body-file stdin dash → allow
-run_case "body-file stdin dash" pass Bash \
-  'gh pr create --title "fix: x" --body-file -'
+# (e) body-file stdin dash → BLOCK (Codex round 3: stdin content uninspectable
+# at PreToolUse time; allowing it was a hard-gate bypass.)
+run_case "body-file stdin dash blocks" block Bash \
+  'printf "no marker" | gh pr create --title "fix: x" --body-file -'
+
+# (e') stdin + inline body marker → allow (marker present satisfies gate)
+run_case "body-file stdin dash with inline body marker" pass Bash \
+  'echo body | gh pr create --title "fix: x" --body-file - --body "Caller chain verified: pipe"'
 
 # (f) block message contains heredoc cascade hint
 run_case "block msg heredoc hint" block Bash \
