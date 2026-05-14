@@ -118,15 +118,39 @@ def _safe_read(p: Path) -> str:
         return ""
 
 
-def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> str:
+def _path_is_overwritten_in_raw(command: str, path: str) -> bool:
+    """True if `path` appears as a redirect/write target in the raw command.
+
+    Catches TOCTOU bypass where a pre-existing marker file is overwritten
+    by the same Bash invocation before `gh pr create --body-file <path>`:
+
+        echo no-marker > /tmp/body.md && gh pr create --body-file /tmp/body.md
+        printf bad | tee /tmp/body.md && gh pr create --body-file /tmp/body.md
+
+    PreToolUse reads the OLD file content (marker present, passes the gate),
+    but bash then overwrites it before gh sees it. Treating these as empty
+    body forces the marker check to fire on the inline portion only.
+    """
+    quoted = re.escape(path)
+    patterns = (
+        rf">>?\s*['\"]?{quoted}['\"]?(?:\s|$)",          # > path / >> path
+        rf"\btee\b(?:\s+-a)?\s+['\"]?{quoted}['\"]?",     # tee path / tee -a path
+    )
+    return any(re.search(p, command) for p in patterns)
+
+
+def _get_effective_body(argv: list[str], hmap: dict[str, str], command: str) -> str:
     """Return the effective PR body text for marker inspection.
 
-    Uninspectable sources (stdin, missing file, unreadable file) contribute
-    empty string so the marker check fires and the block path triggers.
-    This closes hard-gate bypasses identified by Codex:
+    Uninspectable / untrustworthy sources (stdin, missing file, unreadable
+    file, file overwritten in same command) contribute empty string so the
+    marker check fires and the block path triggers. Closes hard-gate
+    bypasses identified by Codex:
       - stdin (`--body-file -`) — pipe content unknowable at PreToolUse time
       - missing path — `cat <<EOF > /tmp/x && gh pr create --body-file /tmp/x`
         cascade where the redirect side-effect has not yet executed
+      - same-command overwrite — `echo x > /tmp/x && gh pr create --body-file /tmp/x`
+        where current file content is stale relative to what gh will see
     """
     parts: list[str] = []
     for i, t in enumerate(argv):
@@ -138,6 +162,8 @@ def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> str:
             path = argv[i + 1]
             if path == "-":
                 continue  # stdin — empty contribution → fall through to block
+            if _path_is_overwritten_in_raw(command, path):
+                continue  # TOCTOU: current content is stale → trust nothing
             p = Path(path).expanduser()
             if p.is_file():
                 parts.append(_safe_read(p))
@@ -146,6 +172,8 @@ def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> str:
             path = t.split("=", 1)[1]
             if path == "-":
                 continue  # stdin — empty contribution → fall through to block
+            if _path_is_overwritten_in_raw(command, path):
+                continue  # TOCTOU: current content is stale → trust nothing
             p = Path(path).expanduser()
             if p.is_file():
                 parts.append(_safe_read(p))
@@ -252,7 +280,7 @@ def main() -> int:
             continue  # cross-project PR — skip
         if _uses_template_without_body(argv):
             continue  # interactive template fill-in
-        body = _get_effective_body(argv, hmap)
+        body = _get_effective_body(argv, hmap, command)
         if CALLER_CHAIN_RE.search(_strip_fenced_blocks(body)):
             continue  # evidence present
         sys.stderr.write(BLOCK_MSG)

@@ -192,6 +192,24 @@ run_case "body-file stdin dash blocks" block Bash \
 run_case "body-file stdin dash with inline body marker" pass Bash \
   'echo body | gh pr create --title "fix: x" --body-file - --body "Caller chain verified: pipe"'
 
+# Codex round 4 — TOCTOU: pre-existing marker file overwritten in same command
+# before `gh pr create` runs. Hook must treat the body-file as untrustworthy
+# (empty body → block) because PreToolUse reads pre-overwrite content.
+TOCTOU_FILE=/tmp/praxis220-toctou-test-$$.md
+echo 'Caller chain verified: stale prior content' > "$TOCTOU_FILE"
+run_case "body-file overwritten in same command blocks" block Bash \
+  "echo 'no marker overwritten' > $TOCTOU_FILE && gh pr create --title 'fix: x' --body-file $TOCTOU_FILE"
+
+# TOCTOU control — same path but no overwrite in this command → allow
+run_case "body-file pre-existing with marker no overwrite passes" pass Bash \
+  "gh pr create --title 'fix: x' --body-file $TOCTOU_FILE"
+
+# Tee variant of the TOCTOU pattern
+run_case "body-file tee-overwritten in same command blocks" block Bash \
+  "echo body | tee $TOCTOU_FILE && gh pr create --title 'fix: x' --body-file $TOCTOU_FILE"
+
+rm -f "$TOCTOU_FILE"
+
 # (f) block message contains heredoc cascade hint
 run_case "block msg heredoc hint" block Bash \
   'gh pr create --body "no marker"'
