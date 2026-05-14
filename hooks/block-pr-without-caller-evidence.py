@@ -16,6 +16,16 @@ Allow conditions:
   3. --template/-T without --body/-b (interactive fill-in; body filled after)
   4. Effective body contains /^Caller chain verified:[ \\t]*\\S/i
 
+Block conditions for --body-file:
+  - `--body-file -` (stdin): the pipe content is uninspectable at PreToolUse
+    time. Treated as empty body → block fires unless inline --body marker
+    accompanies it. Allowing stdin bypassed the hard-gate (Codex round 3).
+  - Path missing at PreToolUse time → treated as empty body so the marker
+    check fires. This closes the `cat <<EOF > /tmp/body.md && gh pr create
+    --body-file /tmp/body.md` cascade bypass, where the redirect side-effect
+    has not run yet and the file does not exist at hook time.
+  - Path readable but content has no marker → block (standard case).
+
 Accepted line forms (all satisfy condition 4):
   Caller chain verified: grep found 3 callers in src/providers/
   Caller chain verified: new symbol, no caller expected
@@ -24,7 +34,9 @@ Accepted line forms (all satisfy condition 4):
 
 Body sources resolved (in order):
   --body / -b  →  literal value or $VAR from earlier assignment
-  --body-file PATH  →  file read (empty on I/O error)
+  --body-file PATH  →  file read if present; missing/unreadable → empty body
+                       (falls through to marker check; blocks unless inline
+                       marker also present)
 
 Note: env/sudo/command prefix wrappers are transparent via strip_prefix().
 """
@@ -81,13 +93,6 @@ def _strip_fenced_blocks(body: str) -> str:
     return _FENCED_OPEN_RE.sub("", body)
 
 
-def _read_file(path: str) -> str:
-    try:
-        return Path(path).expanduser().read_text()
-    except (OSError, FileNotFoundError):
-        return ""
-
-
 def _build_heredoc_map(command: str) -> dict[str, str]:
     return {m.group(1): m.group(3) for m in _HEREDOC_ASSIGN_RE.finditer(command)}
 
@@ -99,7 +104,54 @@ def _resolve_vars(s: str, hmap: dict[str, str]) -> str:
     return _VAR_RE.sub(sub, s)
 
 
-def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> str:
+def _safe_read(p: Path) -> str:
+    """Read the file at p, returning empty string on any OS-level failure.
+
+    Advisory contract: hook infrastructure errors must fail open (block
+    check sees empty body, marker check fires unless inline marker exists).
+    A bare p.read_text() would raise OSError on permission-denied / TOCTOU
+    races / non-text encodings and crash the PreToolUse hook itself.
+    """
+    try:
+        return p.read_text()
+    except OSError:
+        return ""
+
+
+def _path_is_overwritten_in_raw(command: str, path: str) -> bool:
+    """True if `path` appears as a redirect/write target in the raw command.
+
+    Catches TOCTOU bypass where a pre-existing marker file is overwritten
+    by the same Bash invocation before `gh pr create --body-file <path>`:
+
+        echo no-marker > /tmp/body.md && gh pr create --body-file /tmp/body.md
+        printf bad | tee /tmp/body.md && gh pr create --body-file /tmp/body.md
+
+    PreToolUse reads the OLD file content (marker present, passes the gate),
+    but bash then overwrites it before gh sees it. Treating these as empty
+    body forces the marker check to fire on the inline portion only.
+    """
+    quoted = re.escape(path)
+    patterns = (
+        rf">>?\s*['\"]?{quoted}['\"]?(?:\s|$)",          # > path / >> path
+        rf"\btee\b(?:\s+-a)?\s+['\"]?{quoted}['\"]?",     # tee path / tee -a path
+    )
+    return any(re.search(p, command) for p in patterns)
+
+
+def _get_effective_body(argv: list[str], hmap: dict[str, str], command: str) -> str:
+    """Return the effective PR body text for marker inspection.
+
+    Uninspectable / untrustworthy sources (stdin, missing file, unreadable
+    file, file overwritten in same command) contribute empty string so the
+    marker check fires and the block path triggers. Closes hard-gate
+    bypasses identified by Codex:
+      - stdin (`--body-file -`) — pipe content unknowable at PreToolUse time
+      - missing path — `cat <<EOF > /tmp/x && gh pr create --body-file /tmp/x`
+        cascade where the redirect side-effect has not yet executed
+      - same-command overwrite — `echo x > /tmp/x && gh pr create --body-file /tmp/x`
+        where current file content is stale relative to what gh will see
+    """
     parts: list[str] = []
     for i, t in enumerate(argv):
         if t in ("--body", "-b") and i + 1 < len(argv):
@@ -107,9 +159,25 @@ def _get_effective_body(argv: list[str], hmap: dict[str, str]) -> str:
         elif t.startswith("--body="):
             parts.append(_resolve_vars(t.split("=", 1)[1], hmap))
         elif t == "--body-file" and i + 1 < len(argv):
-            parts.append(_read_file(argv[i + 1]))
+            path = argv[i + 1]
+            if path == "-":
+                continue  # stdin — empty contribution → fall through to block
+            if _path_is_overwritten_in_raw(command, path):
+                continue  # TOCTOU: current content is stale → trust nothing
+            p = Path(path).expanduser()
+            if p.is_file():
+                parts.append(_safe_read(p))
+            # missing file → empty contribution → falls through to marker check
         elif t.startswith("--body-file="):
-            parts.append(_read_file(t.split("=", 1)[1]))
+            path = t.split("=", 1)[1]
+            if path == "-":
+                continue  # stdin — empty contribution → fall through to block
+            if _path_is_overwritten_in_raw(command, path):
+                continue  # TOCTOU: current content is stale → trust nothing
+            p = Path(path).expanduser()
+            if p.is_file():
+                parts.append(_safe_read(p))
+            # missing file → empty contribution → falls through to marker check
     return "\n".join(parts)
 
 
@@ -177,6 +245,10 @@ Why (praxis #158):
   hard gate at the last checkpoint before shared-state mutation.
 
 Cross-project PRs (--repo other/org) are not blocked.
+
+Note: if you used `cat <<EOF > /tmp/body.md && gh pr create --body-file \
+/tmp/body.md` and got blocked, the heredoc redirect was also aborted — the \
+file does NOT exist. Use Write tool first, then a separate Bash call.
 """
 
 
@@ -208,7 +280,7 @@ def main() -> int:
             continue  # cross-project PR — skip
         if _uses_template_without_body(argv):
             continue  # interactive template fill-in
-        body = _get_effective_body(argv, hmap)
+        body = _get_effective_body(argv, hmap, command)
         if CALLER_CHAIN_RE.search(_strip_fenced_blocks(body)):
             continue  # evidence present
         sys.stderr.write(BLOCK_MSG)

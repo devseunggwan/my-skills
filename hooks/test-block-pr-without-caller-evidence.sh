@@ -145,6 +145,91 @@ run_case "env wrapper transparent" pass Bash \
   'env GH_TOKEN=xyz gh pr create --body "Caller chain verified: new symbol, no caller expected"'
 
 # ---------------------------------------------------------------------------
+# --body-file cases (issue #220)
+# ---------------------------------------------------------------------------
+
+# (a) body-file with marker → allow
+run_case "body-file with marker" pass Bash \
+  "$(
+    f=$(mktemp)
+    printf 'Caller chain verified: N/A\n' >"$f"
+    printf 'gh pr create --title "fix: x" --body-file %s' "$f"
+  )"
+
+# (b) body-file without marker → block
+run_case "body-file without marker" block Bash \
+  "$(
+    f=$(mktemp)
+    printf '## Summary\nno marker here\n' >"$f"
+    printf 'gh pr create --title "fix: x" --body-file %s' "$f"
+  )"
+
+# (c) inline --body with marker (regression)
+run_case "inline body with marker regression" pass Bash \
+  'gh pr create --body "Caller chain verified: inline check"'
+
+# (d) body-file path does not exist → BLOCK (Codex #226: missing-file allow
+# created a bypass for `cat <<EOF > /tmp/x && gh pr create --body-file /tmp/x`
+# compound patterns, since the redirect side-effect has not run at PreToolUse
+# time. Treat missing file as empty body so the marker check fires.)
+run_case "body-file nonexistent path blocks" block Bash \
+  'gh pr create --title "fix: x" --body-file /tmp/does-not-exist-praxis-220.md'
+
+# (d') compound bash redirect-then-pr-create with no marker → BLOCK (regression
+# guard for the exact bypass pattern Codex flagged).
+run_case "compound redirect then pr create no marker" block Bash \
+  'cat <<EOF > /tmp/does-not-exist-praxis-220.md
+body without marker
+EOF
+gh pr create --title "fix: x" --body-file /tmp/does-not-exist-praxis-220.md'
+
+# (e) body-file stdin dash → BLOCK (Codex round 3: stdin content uninspectable
+# at PreToolUse time; allowing it was a hard-gate bypass.)
+run_case "body-file stdin dash blocks" block Bash \
+  'printf "no marker" | gh pr create --title "fix: x" --body-file -'
+
+# (e') stdin + inline body marker → allow (marker present satisfies gate)
+run_case "body-file stdin dash with inline body marker" pass Bash \
+  'echo body | gh pr create --title "fix: x" --body-file - --body "Caller chain verified: pipe"'
+
+# Codex round 4 — TOCTOU: pre-existing marker file overwritten in same command
+# before `gh pr create` runs. Hook must treat the body-file as untrustworthy
+# (empty body → block) because PreToolUse reads pre-overwrite content.
+TOCTOU_FILE=/tmp/praxis220-toctou-test-$$.md
+echo 'Caller chain verified: stale prior content' > "$TOCTOU_FILE"
+run_case "body-file overwritten in same command blocks" block Bash \
+  "echo 'no marker overwritten' > $TOCTOU_FILE && gh pr create --title 'fix: x' --body-file $TOCTOU_FILE"
+
+# TOCTOU control — same path but no overwrite in this command → allow
+run_case "body-file pre-existing with marker no overwrite passes" pass Bash \
+  "gh pr create --title 'fix: x' --body-file $TOCTOU_FILE"
+
+# Tee variant of the TOCTOU pattern
+run_case "body-file tee-overwritten in same command blocks" block Bash \
+  "echo body | tee $TOCTOU_FILE && gh pr create --title 'fix: x' --body-file $TOCTOU_FILE"
+
+rm -f "$TOCTOU_FILE"
+
+# (f) block message contains heredoc cascade hint
+run_case "block msg heredoc hint" block Bash \
+  'gh pr create --body "no marker"'
+# The run_case above already checks block; separately verify the hint appears.
+_hint_err=$(python3 -c '
+import json, sys
+payload = json.dumps({
+    "tool_name": "Bash",
+    "tool_input": {"command": "gh pr create --body \"no marker\""},
+})
+sys.stdout.write(payload)
+' | python3 "$(dirname "$0")/block-pr-without-caller-evidence.py" 2>&1 >/dev/null || true)
+if printf '%s' "$_hint_err" | grep -q "heredoc redirect was also aborted"; then
+  echo "PASS [hint] block message contains heredoc-cascade hint"; ((PASS++))
+else
+  echo "FAIL [hint] block message missing heredoc-cascade hint"; ((FAIL++))
+  FAILED_NAMES+=("block msg heredoc-cascade hint text")
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
