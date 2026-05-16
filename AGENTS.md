@@ -189,6 +189,7 @@ Design contract shared by all hooks:
 | `external-api-literal-trigger` | PreToolUse | Advisory nudge when ALL_CAPS enum candidates or 3-part SQL identifiers are written without prior retrieval verification (issue #202) | [docs/hook/external-api-literal-trigger.md](docs/hook/external-api-literal-trigger.md) |
 | `block-manufactured-action-menu` | PreToolUse | Warn (advisory) or block (strict) when AskUserQuestion surfaces a "shall we proceed?" menu after the user already issued a command-intent signal | [docs/hook/block-manufactured-action-menu.md](docs/hook/block-manufactured-action-menu.md) |
 | `output-block-falsify-advisory` | PreToolUse | Advisory nudge to run output-block falsification gate before surfacing `(Recommended)` options or bulk-action commands (issue #221) | [docs/hook/output-block-falsify-advisory.md](docs/hook/output-block-falsify-advisory.md) |
+| `pre-gh-pr-create-dedup-gate` | PreToolUse | Run `gh pr list --search` against the resolved target repo before `gh pr create`; surface artifact unconditionally to stderr, hard-block on repo-resolution / gh-call failure (issue #234) | [docs/hook/pre-gh-pr-create-dedup-gate.md](docs/hook/pre-gh-pr-create-dedup-gate.md) |
 
 ### Hook ordering and precedence
 
