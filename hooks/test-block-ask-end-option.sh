@@ -424,6 +424,35 @@ P_4p3=$(build_payload "$T_4p3" '["리뷰", "구현", "테스트", "다음 세션
 run_case "[4-pad] 4-option set, 4th only is '다음 세션' → block" block default "$P_4p3"
 
 # ---------------------------------------------------------------------------
+# (n-pre) Bare Korean end-tokens in option labels (issue #236)
+# ---------------------------------------------------------------------------
+#
+# Before #236, END_OPTION_MARKERS_KO required phrased forms only ("여기서 종료",
+# "세션 종료"). A label of shape "종료 — context" / "그만 — ..." / "마무리"
+# fell through _has_end_marker because no phrased substring matched. The
+# collision-risk argument that justifies bare matching for STOP_SIGNALS_KO
+# applies symmetrically to option labels — these tokens are equally
+# unlikely to appear inside legitimate non-end-option labels. Verify each
+# bare token now triggers a block when the user message has no stop signal.
+
+T_bare1=$(build_transcript "다음 단계 진행해주세요")
+P_bare1=$(build_payload "$T_bare1" '["Plan A", "Plan B", "종료 — 여기서 끊자"]')
+run_case "[#236] bare '종료 — ' label → block" block default "$P_bare1"
+
+T_bare2=$(build_transcript "계속 작업해주세요")
+P_bare2=$(build_payload "$T_bare2" '["Option 1", "Option 2", "그만 — 다음에 이어서"]')
+run_case "[#236] bare '그만 — ' label → block" block default "$P_bare2"
+
+T_bare3=$(build_transcript "다음 작업 알려주세요")
+P_bare3=$(build_payload "$T_bare3" '["Plan A", "Plan B", "마무리"]')
+run_case "[#236] bare '마무리' label → block" block default "$P_bare3"
+
+# Bare-token + stop signal in user message → pass (signal short-circuits).
+T_bare4=$(build_transcript "그만하자")
+P_bare4=$(build_payload "$T_bare4" '["Plan A", "종료 — 여기서 끊자"]')
+run_case "[#236] bare '종료 — ' label + stop signal → pass" pass default "$P_bare4"
+
+# ---------------------------------------------------------------------------
 # (n) False positive avoidance — legitimate work options must NOT be blocked
 # ---------------------------------------------------------------------------
 

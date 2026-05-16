@@ -58,10 +58,20 @@ boundary, where the check runs mechanically regardless of retrieval state.
 
 #### Direct end-option markers (Korean)
 
+Bare tokens (substring match, shared with `STOP_SIGNALS_KO` via
+`_KO_END_TOKENS` — issue #236):
+
+- `종료`
+- `여기까지`
+- `그만`
+- `마무리`
+
+Phrased forms (kept for documentation / redundancy alongside the bare
+tokens above):
+
 - `여기서 종료`
 - `세션 종료`
 - `여기서 끝`
-- `여기까지`
 
 #### Indirect end-option markers (Korean)
 
@@ -131,13 +141,14 @@ Advisory response (exit 0 + stderr message only — no JSON output):
 bash hooks/test-block-ask-end-option.sh
 ```
 
-Covers: direct Korean/English end markers (block + advisory modes), indirect
-English phrasing (take a break, prioritize other work, pause for now, resume in
-a later session, other work first), indirect Korean phrasing (잠시 멈춰, 잠시
-보류, 휴식, 다른 작업 우선, 다음 세션), 4-option padding pattern (4th
-option only carries indirect marker), false positive avoidance (normal work
-options, partial keyword matches that must not trigger), explicit strict env var
-(deprecated compatibility), advisory opt-out via `PRAXIS_ASK_END_ADVISORY=1`,
-graceful degrade on missing transcript, F1 regression (bare-word stop tokens in
-neutral messages), F2 regression (tool_result-only user entries skipped when
-walking backward for human text).
+Covers: direct Korean/English end markers (block + advisory modes), bare
+Korean end-tokens in option labels (issue #236 — `종료`, `그만`, `마무리`),
+indirect English phrasing (take a break, prioritize other work, pause for now,
+resume in a later session, other work first), indirect Korean phrasing (잠시
+멈춰, 잠시 보류, 휴식, 다른 작업 우선, 다음 세션), 4-option padding pattern
+(4th option only carries indirect marker), false positive avoidance (normal
+work options, partial keyword matches that must not trigger), explicit strict
+env var (deprecated compatibility), advisory opt-out via
+`PRAXIS_ASK_END_ADVISORY=1`, graceful degrade on missing transcript, F1
+regression (bare-word stop tokens in neutral messages), F2 regression
+(tool_result-only user entries skipped when walking backward for human text).
