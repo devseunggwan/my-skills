@@ -281,6 +281,26 @@ run_case "var-heredoc then gh pr create passes" pass \
   'gh pr create --title "t" --body "$BODY"'
 
 # ---------------------------------------------------------------------------
+# Cascade-hint suffix (issue #229) — shared cascade advisory text appears in
+# stderr when the heredoc block fires on a compound bash with a state-change.
+# ---------------------------------------------------------------------------
+
+_cascade_err=$(mk_payload 'echo seed > /tmp/x && gh pr create --title t <<EOF' | "$HOOK" 2>&1 >/dev/null)
+if printf '%s' "$_cascade_err" | grep -q "PreToolUse rejection (block or denied ask) aborts ALL parts atomically"; then
+  echo "PASS  [cascade hint on compound heredoc block]"; PASS=$((PASS+1))
+else
+  echo "FAIL  [cascade hint missing on compound heredoc block]"; FAIL=$((FAIL+1)); FAILED_NAMES+=("cascade hint on heredoc block")
+fi
+
+# Single-command heredoc block: no compound chain → no cascade hint
+_single_err=$(mk_payload 'gh pr create --title "t" <<EOF' | "$HOOK" 2>&1 >/dev/null)
+if printf '%s' "$_single_err" | grep -q "PreToolUse rejection (block or denied ask) aborts ALL parts atomically"; then
+  echo "FAIL  [cascade hint leaked on single-command heredoc block]"; FAIL=$((FAIL+1)); FAILED_NAMES+=("cascade hint leaked single heredoc")
+else
+  echo "PASS  [no cascade hint on single-command heredoc block]"; PASS=$((PASS+1))
+fi
+
+# ---------------------------------------------------------------------------
 # Infrastructure
 # ---------------------------------------------------------------------------
 

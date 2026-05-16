@@ -87,6 +87,18 @@ exit 2
 exit 0
 ```
 
+### Compound cascade advisory (issue #229)
+
+Both response paths (HEREDOC_BODY block, CROSS_REPO_WRITE ask) append the
+shared `_hook_utils.compound_cascade_hint` suffix when the parent Bash command
+is compound AND contains a state-changing step (`> file`, `mkdir`, `tee`,
+`cp`/`mv`/`rm`, `curl -o`). The classic shape is
+`cat <<EOF > /tmp/body.md && gh pr create --body-file /tmp/body.md` — the
+heredoc redirect side-effect is aborted together with the gh call, leaving the
+agent's retry with `No such file or directory`. The hint instructs the caller
+to use the Write tool to materialize the body file first, then issue gh in a
+separate Bash call. Single-command rejections do not receive the suffix.
+
 ### Opt-out
 
 Known-intentional cross-repo writes can bypass the ASK gate by appending

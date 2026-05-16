@@ -37,6 +37,20 @@ If any token on the command line matches `prod`, `production`,
 `--env prod`/`--environment=prod`, the reason is prefixed with a
 `⚠️  PROD scope` warning so the reviewer treats it with extra care.
 
+### Compound cascade advisory (issue #229)
+
+When the `ask` is raised on a compound Bash command (`&&`, `||`, `;`, `|`,
+newline) that also contains a state-changing step (`mkdir`, `tee`, `cp`/`mv`/
+`rm`/`touch`, `> file`, `<<EOF > file`, `curl -o`, `wget -O`), the ask reason
+is suffixed with the shared cascade advisory from
+`_hook_utils.compound_cascade_hint`. If the user denies the prompt, bash never
+runs ANY part of the command — including the side-effects the agent might have
+assumed already executed. The advisory reminds the caller to materialize files
+with the Write tool first, then issue the side-effect command separately.
+
+Single-command asks do NOT receive the suffix — there is no cascade to warn
+about when the rejection covers exactly one effect.
+
 ### Opt-out marker
 
 Known-intentional invocations can bypass the hook by embedding the literal

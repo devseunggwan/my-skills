@@ -51,6 +51,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _hook_utils import (  # type: ignore[import-not-found]
+    compound_cascade_hint,
     iter_command_starts,
     safe_tokenize,
     strip_prefix,
@@ -245,10 +246,6 @@ Why (praxis #158):
   hard gate at the last checkpoint before shared-state mutation.
 
 Cross-project PRs (--repo other/org) are not blocked.
-
-Note: if you used `cat <<EOF > /tmp/body.md && gh pr create --body-file \
-/tmp/body.md` and got blocked, the heredoc redirect was also aborted — the \
-file does NOT exist. Use Write tool first, then a separate Bash call.
 """
 
 
@@ -283,7 +280,7 @@ def main() -> int:
         body = _get_effective_body(argv, hmap, command)
         if CALLER_CHAIN_RE.search(_strip_fenced_blocks(body)):
             continue  # evidence present
-        sys.stderr.write(BLOCK_MSG)
+        sys.stderr.write(BLOCK_MSG + compound_cascade_hint(command))
         return 2
 
     return 0

@@ -33,6 +33,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _hook_utils import (  # type: ignore[import-not-found]  # noqa: E402
+    compound_cascade_hint,
     iter_command_starts,
     safe_tokenize,
     strip_prefix,
@@ -331,6 +332,7 @@ def main() -> int:
                     f"Commit title too long: {length} chars (max {max_len}).\n"
                     f"Title: {title!r}\n"
                     "Shorten to ≤50 chars, or embed `# title-length:ack` to bypass."
+                    + compound_cascade_hint(command)
                 )
                 return 0  # ask emitted; only report first violation
 

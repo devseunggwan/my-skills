@@ -35,6 +35,15 @@ arguments are transparent pass-throughs.
 | `grep -- "--state all" docs.md` | **PASS** (grep pattern) |
 | `echo "--state all is invalid"` | **PASS** (echo argument) |
 
+### Compound cascade advisory (issue #229)
+
+If the blocked `gh search` segment is part of a compound Bash command that
+also contains a state-changing step (e.g. `mkdir -p /tmp/cache && gh search
+... --state all`), the stderr block message is suffixed with the shared
+`_hook_utils.compound_cascade_hint` text. The cascade reminder makes clear
+that the preceding `mkdir`/redirect/download also did not run, so retries
+should not assume the partial side-effects landed.
+
 ### Workarounds when --state all is needed
 
 - Omit `--state` entirely — `gh search` returns results regardless of state by default.

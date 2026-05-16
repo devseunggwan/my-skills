@@ -40,6 +40,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _hook_utils import (  # type: ignore[import-not-found]  # noqa: E402
+    compound_cascade_hint,
     iter_command_starts,
     safe_tokenize,
     strip_prefix,
@@ -134,7 +135,7 @@ def main() -> int:
     if os.environ.get("CMUX_DELEGATE") == "1":
         return 0
 
-    emit_ask(REASON)
+    emit_ask(REASON + compound_cascade_hint(command))
     return 0
 
 

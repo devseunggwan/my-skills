@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _hook_utils import (  # type: ignore[import-not-found]  # noqa: E402
+    compound_cascade_hint,
     iter_command_starts,
     safe_tokenize,
     strip_prefix,
@@ -113,7 +114,7 @@ def main() -> int:
 
     for argv in iter_command_starts(tokens):
         if is_blocked_gh_search(argv):
-            sys.stderr.write(STDERR_MESSAGE)
+            sys.stderr.write(STDERR_MESSAGE + compound_cascade_hint(command))
             return 2
 
     return 0
