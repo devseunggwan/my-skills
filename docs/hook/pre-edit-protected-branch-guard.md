@@ -61,6 +61,7 @@ cover (e.g. starting work on an unprotected branch then renaming it to main).
 1. `tool_name ∈ {Edit, Write, NotebookEdit}`
 2. No skip rule matches (see table above)
 3. `git rev-parse --abbrev-ref HEAD` returns a protected branch name
+   (detached HEAD → fail-open, no block)
 4. `git status --porcelain` is non-empty (dirty working tree)
 5. The edit target's repo-relative path is NOT present in the dirty-file set
 
@@ -69,8 +70,10 @@ cover (e.g. starting work on an unprotected branch then renaming it to main).
 1. `tool_name ∈ {Edit, Write, NotebookEdit}`
 2. No skip rule matches (see table above); `PRAXIS_PBGUARD_SKIP_PR_CHECK` is not `1`
 3. `git rev-parse --abbrev-ref HEAD` returns a protected branch name
+   (detached HEAD → fail-open, no block)
 4. `git status --porcelain` is empty (clean working tree)
 5. `git log --oneline -3` has at least one line matching `\(#\d+\)\s*$`
+   (zero commits or git failure → empty output → no signal → no block)
 
 ### Protected branches
 

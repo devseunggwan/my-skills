@@ -183,6 +183,16 @@ run_case "clean+protected+no-PR-log → pass (no dirty, no PR signal)" pass \
   "PRAXIS_PBGUARD_TEST_STATUS=" \
   "PRAXIS_PBGUARD_TEST_LOG="
 
+# Fresh repo with zero commits (`git log` exits non-zero, helper returns "")
+# is functionally equivalent to TEST_LOG="". Documented as a separate fixture
+# so a future regex/threshold change can't silently pass this case.
+run_case "clean+protected+empty-log (fresh repo, 0 commits) → pass" pass \
+  Edit "$NEW_FILE" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG="
+
 # Log without any (#NNN) suffix → no PR-workflow signal → pass
 run_case "clean+protected+log-without-PR-suffix → pass" pass \
   Edit "$NEW_FILE" \
@@ -192,6 +202,18 @@ run_case "clean+protected+log-without-PR-suffix → pass" pass \
   "PRAXIS_PBGUARD_TEST_LOG=abc1234 initial commit
 def5678 add scaffold
 9012345 wip notes"
+
+# Regex is anchored to end-of-line: `(#42)` mid-line (e.g. inside a body excerpt
+# leaking into oneline subject, or a reference to another PR mid-subject) does
+# NOT match. Locks in current behaviour against accidental anchor removal.
+run_case "clean+protected+PR-token-mid-line-not-anchored → pass" pass \
+  Edit "$NEW_FILE" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 see (#42) for context, follow-up later
+def5678 fix typo (#99) earlier in subject, then more text
+9012345 normal commit no parens"
 
 # ---------------------------------------------------------------------------
 # DENY: clean working tree + PR-workflow signal in recent commits (issue #231)
