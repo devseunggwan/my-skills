@@ -13,7 +13,7 @@ description: >
   "premise verification", "flip detection", "sibling defect", "sibling cross-check".
 verified-against-runtime: true
 runtime-verified-at: 2026-05-13
-runtime-verified-note: "codex-companion 1.0.4 — ARGUMENTS rejected for non-flag string; AskUserQuestion maxItems:4 blocks worktree list >3 items; Skill() cannot delegate to disable-model-invocation skill"
+runtime-verified-note: "codex-companion 1.0.4 — ARGUMENTS rejected for non-flag string; AskUserQuestion maxItems:4 blocks worktree list >3 items; Skill() cannot delegate to disable-model-invocation skill. Step 4 hardened to a MUST NOT directive in issue #237 (2026-05-16) — directive-only change, no new runtime claim."
 ---
 
 # codex-review-wrap
@@ -125,10 +125,23 @@ If the selected path differs from cwd, note it explicitly:
 
 ### Step 4: Run codex-companion against the selected worktree
 
-`/codex:review` declares `disable-model-invocation: true`, so it cannot be
-called via `Skill(...)` from inside another skill. Invoke the underlying
-companion script directly instead — this mirrors what `/codex:review` does
-in its own foreground flow.
+**MUST NOT call `Skill("codex:review")`.** `/codex:review` declares
+`disable-model-invocation: true`, so the Skill tool always returns the
+following error and the call wastes a turn every time:
+
+```
+Skill codex:review cannot be used with Skill tool due to disable-model-invocation
+```
+
+This is a constant property of `/codex:review` — not session-dependent,
+not retry-able, not environment-gated. Do **not** probe it as a pre-check;
+do **not** attempt it as a "primary path before fallback"; do **not**
+re-attempt it on a later round in the same session. Route straight to the
+companion script in 4a/4b on every invocation, including the first.
+
+The only `Skill(...)` call legitimately reachable from Step 4 is the
+`oh-my-claudecode:code-reviewer` fallback in 4a — and only when the
+codex-companion.mjs path does not resolve.
 
 #### 4a. Resolve the codex-companion.mjs path
 
