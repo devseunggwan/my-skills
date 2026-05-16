@@ -173,14 +173,99 @@ run_case "dirty+protected+nonexistent-parent-dir → deny (P2: ancestor-walk)" d
   "CLAUDE_PLUGIN_ROOT=/nonexistent-plugin-root"
 
 # ---------------------------------------------------------------------------
-# PASS: clean working tree → no block
+# PASS: clean working tree + no PR-workflow signal → no block
 # ---------------------------------------------------------------------------
 
-run_case "clean+protected → pass (no dirty)" pass \
+run_case "clean+protected+no-PR-log → pass (no dirty, no PR signal)" pass \
   Edit "$NEW_FILE" \
   "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
   "PRAXIS_PBGUARD_TEST_BRANCH=main" \
-  "PRAXIS_PBGUARD_TEST_STATUS="
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG="
+
+# Log without any (#NNN) suffix → no PR-workflow signal → pass
+run_case "clean+protected+log-without-PR-suffix → pass" pass \
+  Edit "$NEW_FILE" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 initial commit
+def5678 add scaffold
+9012345 wip notes"
+
+# ---------------------------------------------------------------------------
+# DENY: clean working tree + PR-workflow signal in recent commits (issue #231)
+# ---------------------------------------------------------------------------
+
+run_case "clean+protected+PR-suffix-in-log → deny (issue #231)" deny \
+  Edit "$NEW_FILE" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 feat: add feature (#107)
+def5678 fix: bug fix (#102)
+9012345 chore: tidy (#100)"
+
+# Only 1 of 3 lines matches → still deny (≥1 threshold)
+run_case "clean+protected+1-of-3-PR-suffix → deny" deny \
+  Edit "$NEW_FILE" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 initial commit
+def5678 add scaffold
+9012345 feat: add feature (#42)"
+
+# Non-protected branch, PR signal in log → pass (only protected branches guarded)
+run_case "clean+non-protected+PR-suffix → pass" pass \
+  Edit "$NEW_FILE" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=feature/my-feature" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 feat: add feature (#107)"
+
+# SKIP_PR_CHECK opt-out (partial: keeps dirty-tree check, disables only PR check)
+run_case "clean+protected+PR-suffix+SKIP_PR_CHECK=1 → pass" pass \
+  Edit "$NEW_FILE" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 feat: add feature (#107)" \
+  "PRAXIS_PBGUARD_SKIP_PR_CHECK=1"
+
+# Full SKIP opt-out
+run_case "clean+protected+PR-suffix+SKIP=1 → pass" pass \
+  Edit "$NEW_FILE" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 feat: add feature (#107)" \
+  "PRAXIS_PBGUARD_SKIP=1"
+
+# Docs skip wins over PR-workflow check
+run_case "clean+protected+PR-suffix+README.md → pass (docs skip)" pass \
+  Edit "$FAKE_ROOT/README.md" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 feat: add feature (#107)"
+
+# BLOCK_DOCS=1 + PR-suffix on docs file → deny
+run_case "clean+protected+PR-suffix+README.md+BLOCK_DOCS=1 → deny" deny \
+  Edit "$FAKE_ROOT/README.md" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 feat: add feature (#107)" \
+  "PRAXIS_PBGUARD_BLOCK_DOCS=1"
+
+# Write tool with PR-suffix on clean tree → deny
+run_case "clean+protected+PR-suffix+Write → deny" deny \
+  Write "$NEW_FILE" \
+  "PRAXIS_PBGUARD_TEST_REPO_ROOT=$FAKE_ROOT" \
+  "PRAXIS_PBGUARD_TEST_BRANCH=main" \
+  "PRAXIS_PBGUARD_TEST_STATUS=" \
+  "PRAXIS_PBGUARD_TEST_LOG=abc1234 feat: add feature (#107)"
 
 # ---------------------------------------------------------------------------
 # PASS: non-protected branch → no block

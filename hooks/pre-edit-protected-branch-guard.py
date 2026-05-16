@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
 """PreToolUse guard: block edits on protected branches without a worktree.
 
-Fires on Edit / Write / NotebookEdit tool calls. Blocks the edit when ALL
-three conditions are true:
+Fires on Edit / Write / NotebookEdit tool calls. Two independent deny paths:
 
-  (a) current branch ∈ protected set (main, dev, prod, master — configurable)
-  (b) git status --porcelain is non-empty (dirty working tree)
-  (c) the edit target path is NOT already part of the existing dirty diff
-      (allows continuing in-flight work on files already being edited)
+  Dirty-tree path (existing) — blocks when ALL three are true:
+    (a) current branch ∈ protected set (main, dev, prod, master — configurable)
+    (b) git status --porcelain is non-empty (dirty working tree)
+    (c) the edit target path is NOT already part of the existing dirty diff
+        (allows continuing in-flight work on files already being edited)
 
-False-positive skip rules (pass-through, no block):
+  PR-workflow path (issue #231) — blocks when ALL three are true:
+    (a) current branch ∈ protected set
+    (b) git status --porcelain is empty (clean working tree)
+    (c) `git log --oneline -3` contains a `(#NNN)` PR-suffix on any line
+        (signals the repo uses a PR workflow; direct main edits violate it)
+
+False-positive skip rules (pass-through, no block — apply to both paths):
   - Self-editing: paths inside the praxis plugin directory (CLAUDE_PLUGIN_ROOT)
   - Planning artifacts: /tmp/, .omc/plans/, .claude/projects/ paths
   - Docs-only: README*, CHANGELOG*, CONTRIBUTING*, /docs/ directory
     (disable per-repo via PRAXIS_PBGUARD_BLOCK_DOCS=1)
   - Full opt-out: PRAXIS_PBGUARD_SKIP=1
+  - PR-workflow path only: PRAXIS_PBGUARD_SKIP_PR_CHECK=1
 
 Customization (env vars or .claude/hook-config.json):
   - PRAXIS_ISSUE_TRACKER_URL: URL shown in the block message
@@ -26,6 +33,8 @@ Test overrides (for isolation without a real git repo):
   - PRAXIS_PBGUARD_TEST_BRANCH: override current branch name
   - PRAXIS_PBGUARD_TEST_STATUS: override `git status --porcelain` output
     (empty string = clean tree; not set = call real git)
+  - PRAXIS_PBGUARD_TEST_LOG: override `git log --oneline -3` output
+    (empty string = no commits / no PR signal; not set = call real git)
 
 Fail-open on all infrastructure errors:
   - Missing git binary, subprocess timeout, malformed stdin JSON → exit 0.
@@ -34,6 +43,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -80,6 +90,35 @@ DENY_REASON_TEMPLATE = (
     "  • Docs edits are skipped by default; set PRAXIS_PBGUARD_BLOCK_DOCS=1\n"
     "    to also guard doc files."
 )
+
+DENY_REASON_PR_WORKFLOW_TEMPLATE = (
+    "[pre-edit:protected-branch-guard] Edit blocked: you are on protected "
+    "branch '{branch}' and recent commits show a `(#NNN)` PR-suffix pattern, "
+    "signaling this repo uses a PR workflow.\n"
+    "\n"
+    "Recent commit signal:\n"
+    "{log_excerpt}\n"
+    "\n"
+    "Direct edits on '{branch}' violate the PR workflow. Create an issue + "
+    "branch + worktree before editing.\n"
+    "\n"
+    "Required steps:\n"
+    "  1. Create an issue: {issue_tracker_url}\n"
+    "  2. Create a branch + worktree:\n"
+    "       git worktree add <path> -b <new-branch>\n"
+    "  3. Work inside that worktree, then create a PR.\n"
+    "\n"
+    "Bypasses:\n"
+    "  • Skip just the PR-workflow check (keep dirty-tree check):\n"
+    "       PRAXIS_PBGUARD_SKIP_PR_CHECK=1\n"
+    "  • Full opt-out for this session: PRAXIS_PBGUARD_SKIP=1.\n"
+    "  • Docs edits are skipped by default; set PRAXIS_PBGUARD_BLOCK_DOCS=1\n"
+    "    to also guard doc files."
+)
+
+# Acceptance criteria from issue #231: regex \(#\d+\)$ on `git log --oneline -3`.
+# Trailing \s* tolerates incidental whitespace from pagers / wrappers.
+PR_SUFFIX_RE = re.compile(r"\(#\d+\)\s*$")
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +220,39 @@ def get_dirty_files(repo_root: str) -> set[str]:
     if rc != 0:
         return set()
     return _parse_status_porcelain(out)
+
+
+def get_recent_log(repo_root: str) -> str:
+    """Return `git log --oneline -3` output, or empty string on failure.
+
+    Uses PRAXIS_PBGUARD_TEST_LOG env var for test isolation.
+    Empty string = no commits / no PR signal; not set = call real git.
+    """
+    if "PRAXIS_PBGUARD_TEST_LOG" in os.environ:
+        return os.environ["PRAXIS_PBGUARD_TEST_LOG"]
+
+    rc, out = _run_git(["log", "--oneline", "-3"], repo_root)
+    if rc != 0:
+        return ""
+    return out
+
+
+def has_pr_workflow_signal(repo_root: str) -> tuple[bool, str]:
+    """Detect PR-workflow signal in recent commits (issue #231).
+
+    Runs `git log --oneline -3` and matches each line against `\\(#\\d+\\)$`.
+    Returns (True, log_excerpt) if any line matches, else (False, "").
+    """
+    log = get_recent_log(repo_root)
+    if not log:
+        return False, ""
+    matched_lines: list[str] = []
+    for line in log.splitlines():
+        if PR_SUFFIX_RE.search(line):
+            matched_lines.append(line)
+    if not matched_lines:
+        return False, ""
+    return True, "\n".join(f"    {ln}" for ln in matched_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +418,18 @@ def main() -> int:
 
     dirty_files = get_dirty_files(repo_root)
     if not dirty_files:
-        return 0  # clean working tree — allow
+        # Clean tree: fall through to PR-workflow signal check (issue #231).
+        if os.environ.get("PRAXIS_PBGUARD_SKIP_PR_CHECK", "").strip() == "1":
+            return 0
+        has_signal, log_excerpt = has_pr_workflow_signal(repo_root)
+        if has_signal:
+            reason = DENY_REASON_PR_WORKFLOW_TEMPLATE.format(
+                branch=branch,
+                log_excerpt=log_excerpt,
+                issue_tracker_url=get_issue_tracker_url(config),
+            )
+            emit_deny(reason)
+        return 0
 
     if _is_inflight_edit(file_path, repo_root, dirty_files):
         return 0  # continuing in-flight work — allow
