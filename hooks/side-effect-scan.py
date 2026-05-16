@@ -22,6 +22,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _hook_utils import (  # type: ignore[import-not-found]  # noqa: E402
+    compound_cascade_hint,
     iter_command_starts,
     safe_tokenize,
     strip_prefix,
@@ -152,7 +153,7 @@ def has_prod_scope(tokens: list[str]) -> bool:
     return False
 
 
-def build_reason(categories: list[str], prod: bool) -> str:
+def build_reason(categories: list[str], prod: bool, command: str) -> str:
     parts = [f"[{c}] {CATEGORIES[c]['reason']}." for c in categories]
     msg = " ".join(parts)
     if prod:
@@ -160,6 +161,7 @@ def build_reason(categories: list[str], prod: bool) -> str:
     msg += (
         " 의도한 실행이면 command 에 '# side-effect:ack' 주석을 포함해 재호출하세요."
     )
+    msg += compound_cascade_hint(command)
     return msg
 
 
@@ -207,7 +209,7 @@ def main() -> int:
     if not matched:
         return 0
 
-    reason = build_reason(matched, has_prod_scope(tokens))
+    reason = build_reason(matched, has_prod_scope(tokens), command)
     emit_ask(reason)
     return 0
 

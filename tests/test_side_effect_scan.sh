@@ -209,6 +209,36 @@ cmux_run "delegate git push still asks"       ask  "git push origin main"
 cmux_run "delegate git commit still asks"     ask  "git commit -m wip"
 cmux_run "delegate kubectl apply still ask"   ask  "kubectl apply -f x.yaml"
 
+# --- compound cascade-hint suffix (issue #229) -----------------------------
+# When the ask fires on a compound command containing a state-changing step
+# (mkdir, redirect, tee, curl -o, …), the ask reason must include the shared
+# cascade advisory text from _hook_utils.compound_cascade_hint.
+
+_hint_payload=$(python3 -c '
+import json, sys
+print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))
+' 'mkdir -p /tmp/staged && git push origin main')
+_hint_out=$(echo "$_hint_payload" | "$HOOK" 2>/dev/null)
+if echo "$_hint_out" | grep -q "PreToolUse rejection (block or denied ask) aborts ALL parts atomically"; then
+  echo "PASS  [cascade hint on compound git push ask]"; PASS=$((PASS + 1))
+else
+  echo "FAIL  [cascade hint missing on compound git push ask]"
+  FAIL=$((FAIL + 1)); FAILED_NAMES+=("cascade hint compound git push")
+fi
+
+# Single-command ask (no compound chain) → reason must NOT carry the cascade hint
+_single_payload=$(python3 -c '
+import json, sys
+print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))
+' 'git push origin main')
+_single_out=$(echo "$_single_payload" | "$HOOK" 2>/dev/null)
+if echo "$_single_out" | grep -q "PreToolUse rejection (block or denied ask) aborts ALL parts atomically"; then
+  echo "FAIL  [cascade hint leaked on single-command ask]"
+  FAIL=$((FAIL + 1)); FAILED_NAMES+=("cascade hint leaked single command")
+else
+  echo "PASS  [no cascade hint on single-command ask]"; PASS=$((PASS + 1))
+fi
+
 # --- non-Bash tool passthrough ---------------------------------------------
 non_bash_out=$(echo '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}' | "$HOOK" 2>/dev/null)
 if [ -z "$non_bash_out" ]; then

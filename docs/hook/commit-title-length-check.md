@@ -59,6 +59,15 @@ a 72-char convention) without disabling the hook.
 }
 ```
 
+### Compound cascade advisory (issue #229)
+
+When the ask fires on a compound Bash command containing a state-changing
+step (e.g. `mkdir -p /tmp/log && git commit -m "$(cat /tmp/log/very-long-..."`),
+the ask reason is suffixed with the shared
+`_hook_utils.compound_cascade_hint` text. If the user denies the prompt, the
+chained `mkdir`/redirect/download also did not run — retries must materialize
+those files first.
+
 ### Opt-out marker
 
 Embed `# title-length:ack` anywhere in the command to bypass the check for

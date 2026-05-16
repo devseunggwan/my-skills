@@ -77,6 +77,15 @@ prompt — that single confirmation is the approval the rule requires.
 }
 ```
 
+### Compound cascade advisory (issue #229)
+
+When the ask fires on a compound Bash command that also contains a
+state-changing step (e.g. `git fetch && gh pr merge 42` chained with an
+`mkdir`/redirect/`curl -o`), the ask reason is suffixed with the shared
+`_hook_utils.compound_cascade_hint` text. If the user denies the prompt, all
+chained side-effects abort with the merge. Single-command merges (just
+`gh pr merge 42`) do not receive the suffix.
+
 ### Tests
 
 ```bash

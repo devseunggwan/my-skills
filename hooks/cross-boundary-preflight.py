@@ -32,6 +32,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _hook_utils import (  # type: ignore[import-not-found]  # noqa: E402
+    compound_cascade_hint,
     iter_command_starts,
     safe_tokenize,
     strip_prefix,
@@ -281,7 +282,7 @@ def main() -> int:
 
         # Check 1: heredoc in same segment → hard block (marker-independent)
         if _has_heredoc(argv):
-            sys.stderr.write(HEREDOC_BLOCK_MSG)
+            sys.stderr.write(HEREDOC_BLOCK_MSG + compound_cascade_hint(command))
             return 2
 
         # Check 2: --repo flag present → surface pre-flight checklist
@@ -290,7 +291,7 @@ def main() -> int:
             return 0
         has_repo, repo_val = _has_repo_flag(argv)
         if has_repo:
-            _emit_ask(_build_checklist(subcommand, repo_val))
+            _emit_ask(_build_checklist(subcommand, repo_val) + compound_cascade_hint(command))
             return 0
 
     return 0

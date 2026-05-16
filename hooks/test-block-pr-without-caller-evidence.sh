@@ -210,23 +210,40 @@ run_case "body-file tee-overwritten in same command blocks" block Bash \
 
 rm -f "$TOCTOU_FILE"
 
-# (f) block message contains heredoc cascade hint
-run_case "block msg heredoc hint" block Bash \
-  'gh pr create --body "no marker"'
-# The run_case above already checks block; separately verify the hint appears.
-_hint_err=$(python3 -c '
+# (f) block message contains shared cascade hint when command is compound +
+#     has a state-changing redirect (issue #229). Single-command blocks do NOT
+#     get the hint — the agent already knows the single bash call didn't run.
+
+_capture_stderr() {
+  python3 -c '
 import json, sys
 payload = json.dumps({
     "tool_name": "Bash",
-    "tool_input": {"command": "gh pr create --body \"no marker\""},
+    "tool_input": {"command": sys.argv[1]},
 })
 sys.stdout.write(payload)
-' | python3 "$(dirname "$0")/block-pr-without-caller-evidence.py" 2>&1 >/dev/null || true)
-if printf '%s' "$_hint_err" | grep -q "heredoc redirect was also aborted"; then
-  echo "PASS [hint] block message contains heredoc-cascade hint"; ((PASS++))
+' "$1" | python3 "$(dirname "$0")/block-pr-without-caller-evidence.py" 2>&1 >/dev/null || true
+}
+
+# Positive: compound bash with heredoc redirect → hint appears
+_hint_err=$(_capture_stderr 'cat <<EOF > /tmp/body.md
+no marker here
+EOF
+gh pr create --body-file /tmp/body.md')
+if printf '%s' "$_hint_err" | grep -q "PreToolUse rejection (block or denied ask) aborts ALL parts atomically"; then
+  echo "PASS [hint] compound block message contains cascade hint"; ((PASS++))
 else
-  echo "FAIL [hint] block message missing heredoc-cascade hint"; ((FAIL++))
-  FAILED_NAMES+=("block msg heredoc-cascade hint text")
+  echo "FAIL [hint] compound block message missing cascade hint"; ((FAIL++))
+  FAILED_NAMES+=("compound block missing cascade hint")
+fi
+
+# Negative: single-command block → hint does NOT appear (no cascade to warn about)
+_hint_err=$(_capture_stderr 'gh pr create --body "no marker"')
+if printf '%s' "$_hint_err" | grep -q "PreToolUse rejection"; then
+  echo "FAIL [hint] single-command block leaked cascade hint"; ((FAIL++))
+  FAILED_NAMES+=("single-command block leaked cascade hint")
+else
+  echo "PASS [hint] single-command block has no cascade hint"; ((PASS++))
 fi
 
 # ---------------------------------------------------------------------------

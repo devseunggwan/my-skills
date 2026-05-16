@@ -155,6 +155,16 @@ Design contract shared by all hooks:
   intentionally has no marker; `completion-verify` and `retrospect-mix-check`
   same. Bypass marker (`# side-effect:ack`, `# title-length:ack`) exists only
   where the false-positive cost outweighs the silent-bypass risk.
+- **Compound-Bash cascade advisory (issue #229).** When a PreToolUse(Bash)
+  hook rejects (block) or asks-and-may-deny a compound command (`&&`, `||`,
+  `;`, `|`, newline) containing a state-changing step (`> file`, `<<EOF >`,
+  `mkdir`, `tee`, `cp`/`mv`/`rm`/`touch`, `curl -o`, `wget -O`), every hook
+  appends the shared `_hook_utils.compound_cascade_hint(command)` text to
+  its block/ask message. The advisory clarifies that bash never executed
+  ANY part of the rejected command — files the redirect/mkdir/download
+  would have created do NOT exist on disk — so the agent should not retry
+  the second half expecting the first half to have landed. Single-command
+  rejections receive no suffix (no cascade to warn about).
 
 ### Hook index
 
