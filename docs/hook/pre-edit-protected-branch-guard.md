@@ -1,9 +1,14 @@
 # PreToolUse Pre-Edit Protected-Branch Guard
 
 `hooks/pre-edit-protected-branch-guard.py` fires on every PreToolUse event
-for `Edit`, `Write`, and `NotebookEdit` tools. It blocks the edit when the
-current branch is a protected branch and the working tree is dirty with files
-not yet associated with an issue-driven worktree.
+for `Edit`, `Write`, and `NotebookEdit` tools. It has two independent deny
+paths on protected branches:
+
+1. **Dirty-tree path** — working tree is dirty and the edit target is not
+   yet part of the dirty diff (no associated issue-driven worktree).
+2. **PR-workflow path** (issue #231) — working tree is clean but recent
+   commits show a `(#NNN)` PR-suffix, signaling the repo uses a PR workflow.
+   Direct edits on protected branches violate that workflow.
 
 ### Why this exists
 
@@ -33,26 +38,42 @@ cover (e.g. starting work on an unprotected branch then renaming it to main).
 
 | Scenario | Action |
 |----------|--------|
-| Protected branch + dirty tree + NEW file target | `permissionDecision: "deny"` |
+| Protected branch + dirty tree + NEW file target | `permissionDecision: "deny"` (dirty-tree path) |
+| Protected branch + clean tree + recent commits show `(#NNN)` PR-suffix | `permissionDecision: "deny"` (PR-workflow path, issue #231) |
 | Protected branch + dirty tree + file ALREADY in diff (in-flight) | silent pass-through |
-| Protected branch + clean tree | silent pass-through |
+| Protected branch + clean tree + no PR-suffix in recent commits | silent pass-through |
 | Non-protected branch (`feature/…`, `issue-N-…`) + dirty tree | silent pass-through |
+| Non-protected branch + PR-suffix in log | silent pass-through (guard limited to protected branches) |
 | Edit target in `/tmp/` (no repo root found) | silent pass-through (fail-open) |
 | Edit target in `.omc/plans/` or `.claude/projects/` | silent pass-through (planning artifact) |
 | Edit target is README/CHANGELOG/docs file (unless `PRAXIS_PBGUARD_BLOCK_DOCS=1`) | silent pass-through (docs skip) |
 | Edit target inside `CLAUDE_PLUGIN_ROOT` (praxis plugin self-edit) | silent pass-through |
 | `PRAXIS_PBGUARD_SKIP=1` set in environment | silent pass-through |
+| `PRAXIS_PBGUARD_SKIP_PR_CHECK=1` set in environment | dirty-tree path still active; PR-workflow path skipped |
 | `git` not installed / subprocess timeout | silent pass-through (fail-open) |
 | Malformed stdin JSON | silent pass-through (fail-open) |
 | Detached HEAD | silent pass-through (fail-open) |
 
-### Trigger conditions (ALL must be true to block)
+### Trigger conditions
+
+**Dirty-tree deny path (ALL must be true):**
 
 1. `tool_name ∈ {Edit, Write, NotebookEdit}`
 2. No skip rule matches (see table above)
 3. `git rev-parse --abbrev-ref HEAD` returns a protected branch name
+   (detached HEAD → fail-open, no block)
 4. `git status --porcelain` is non-empty (dirty working tree)
 5. The edit target's repo-relative path is NOT present in the dirty-file set
+
+**PR-workflow deny path (ALL must be true):**
+
+1. `tool_name ∈ {Edit, Write, NotebookEdit}`
+2. No skip rule matches (see table above); `PRAXIS_PBGUARD_SKIP_PR_CHECK` is not `1`
+3. `git rev-parse --abbrev-ref HEAD` returns a protected branch name
+   (detached HEAD → fail-open, no block)
+4. `git status --porcelain` is empty (clean working tree)
+5. `git log --oneline -3` has at least one line matching `\(#\d+\)\s*$`
+   (zero commits or git failure → empty output → no signal → no block)
 
 ### Protected branches
 
@@ -134,6 +155,7 @@ fires automatically when the plugin is loaded.
 | `PRAXIS_PBGUARD_TEST_REPO_ROOT=<path>` | Override `get_repo_root`. Use `"NONE"` to simulate not-in-a-repo. |
 | `PRAXIS_PBGUARD_TEST_BRANCH=<name>` | Override current branch. Use `"HEAD"` to simulate detached HEAD. |
 | `PRAXIS_PBGUARD_TEST_STATUS=<porcelain>` | Override `git status --porcelain` output. Empty string = clean tree. |
+| `PRAXIS_PBGUARD_TEST_LOG=<oneline>` | Override `git log --oneline -3` output. Empty string = no commits / no PR signal. |
 
 ### Tests
 
@@ -142,11 +164,17 @@ bash hooks/test-pre-edit-protected-branch-guard.sh
 ```
 
 Covers:
-- **DENY paths**: dirty + protected + new target (Edit/Write/NotebookEdit), all
-  four default protected branches, docs target with `PRAXIS_PBGUARD_BLOCK_DOCS=1`,
+- **DENY paths (dirty-tree)**: dirty + protected + new target (Edit/Write/NotebookEdit),
+  all four default protected branches, docs target with `PRAXIS_PBGUARD_BLOCK_DOCS=1`,
   custom protected branch list via `PRAXIS_PROTECTED_BRANCHES`.
-- **PASS paths**: clean tree, non-protected branch, edit target already in dirty
-  diff (in-flight continuation), untracked file in status (counts as in-flight),
+- **DENY paths (PR-workflow, issue #231)**: clean + protected + `(#NNN)` suffix
+  in all three log lines, only one of three lines matches, Write tool on clean tree,
+  docs target with `PRAXIS_PBGUARD_BLOCK_DOCS=1`.
+- **PASS paths**: clean tree + no PR signal, log without any `(#NNN)` suffix,
+  non-protected branch (even with PR signal), `PRAXIS_PBGUARD_SKIP_PR_CHECK=1`
+  (PR check only), `PRAXIS_PBGUARD_SKIP=1` with PR signal, README.md on clean
+  tree with PR signal (docs skip wins), edit target already in dirty diff
+  (in-flight continuation), untracked file in status (counts as in-flight),
   `/tmp/` target (fail-open: not in repo), `.omc/plans/` artifact,
   `.claude/projects/` memory file, README.md / CHANGELOG.md / `docs/` directory
   (docs skip), `PRAXIS_PBGUARD_SKIP=1`, non-scoped tool (Bash, Read),
