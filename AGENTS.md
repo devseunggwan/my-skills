@@ -190,6 +190,7 @@ Design contract shared by all hooks:
 | `block-manufactured-action-menu` | PreToolUse | Warn (advisory) or block (strict) when AskUserQuestion surfaces a "shall we proceed?" menu after the user already issued a command-intent signal | [docs/hook/block-manufactured-action-menu.md](docs/hook/block-manufactured-action-menu.md) |
 | `output-block-falsify-advisory` | PreToolUse | Advisory nudge to run output-block falsification gate before surfacing `(Recommended)` options or bulk-action commands (issue #221) | [docs/hook/output-block-falsify-advisory.md](docs/hook/output-block-falsify-advisory.md) |
 | `pre-gh-pr-create-dedup-gate` | PreToolUse | Run `gh pr list --search` against the resolved target repo before `gh pr create`; surface artifact unconditionally to stderr, hard-block on repo-resolution / gh-call failure (issue #234) | [docs/hook/pre-gh-pr-create-dedup-gate.md](docs/hook/pre-gh-pr-create-dedup-gate.md) |
+| `advisory-wrapper-signature-verify` | PreToolUse | Advisory nudge to verify wrapped function signatures before writing wrapper/client code with delegation patterns (issue #235) | [docs/hook/advisory-wrapper-signature-verify.md](docs/hook/advisory-wrapper-signature-verify.md) |
 
 ### Hook ordering and precedence
 
