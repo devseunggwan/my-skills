@@ -50,11 +50,30 @@ import sys
 # End-option markers in option labels. Case-insensitive.
 # Korean entries are unicode literals; English entries cover common phrasings.
 # Direct markers: explicit end/stop/session-termination language.
+#
+# Bare KO tokens (종료/그만/마무리) are intentionally NOT used here. Korean
+# productively inflects: "종료된 이슈 목록", "회의 마무리 방식 검토",
+# "종료 시각 변경" are legitimate triage labels that would substring-match
+# bare tokens. The asymmetry with STOP_SIGNALS_KO is intentional —
+# stop-signal matching scans free-form prose where inflected forms are
+# rare; option labels are exactly where these noun forms cluster.
+# Same rationale that excludes bare "보류" (issue #236 review).
+#
+# To still catch the issue-#236 trigger ("종료 — context"), we list the
+# heading-style separator patterns explicitly: "{token} —", "{token} -",
+# "{token}:". These require a separator after the token, so they do not
+# collide with inflected nouns.
 END_OPTION_MARKERS_KO = (
     "여기서 종료",
     "세션 종료",
     "여기서 끝",
     "여기까지",
+    # Heading-separator patterns for bare KO end-tokens (issue #236).
+    # "{token} —" / "{token} -" / "{token}:" require a separator, so they
+    # do not match inflected forms like "종료된" / "마무리 방식".
+    "종료 —", "종료 -", "종료:",
+    "그만 —", "그만 -", "그만:",
+    "마무리 —", "마무리 -", "마무리:",
     # Indirect Korean: pause / break / defer / other-work framing.
     # Bare "보류" intentionally omitted: substring match would false-block
     # legitimate work labels like "보류 중인 이슈 확인" / "보류 상태 검토".
@@ -83,8 +102,10 @@ END_OPTION_MARKERS_EN = (
 # Stop signals in the most recent user message. Case-insensitive.
 #
 # Korean entries stay substring-matched: CJK lacks ASCII-style word boundaries
-# and these specific tokens have low collision risk inside unrelated words
-# (e.g., "그만" / "종료" rarely appear as substrings of unrelated terms).
+# and these specific tokens have low collision risk inside free-form user
+# prose (e.g., "그만" / "종료" rarely appear as substrings of unrelated terms
+# in the kind of message a user types). The collision risk does NOT extend
+# symmetrically to option labels — see END_OPTION_MARKERS_KO comment above.
 #
 # English entries are phrase-only (no bare-word matching) to prevent the
 # "send" → "end" / "backend" → "end" / "don't stop" → "stop" false-allow class

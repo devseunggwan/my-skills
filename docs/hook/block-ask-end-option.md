@@ -58,10 +58,28 @@ boundary, where the check runs mechanically regardless of retrieval state.
 
 #### Direct end-option markers (Korean)
 
+Phrased forms:
+
 - `여기서 종료`
 - `세션 종료`
 - `여기서 끝`
 - `여기까지`
+
+Heading-separator patterns (issue #236) — match a bare end-token only when
+followed by a heading separator (` —` / ` -` / `:`), which excludes inflected
+nouns like `종료된`, `마무리 방식`:
+
+- `종료 —`, `종료 -`, `종료:`
+- `그만 —`, `그만 -`, `그만:`
+- `마무리 —`, `마무리 -`, `마무리:`
+
+Bare `종료` / `그만` / `마무리` are intentionally **not** markers on the
+option-label side: Korean productively inflects, and labels like
+`종료된 이슈 목록` / `회의 마무리 방식 검토` / `종료 시각 기준` are
+legitimate triage options. The asymmetry with `STOP_SIGNALS_KO` (which
+does match these bare tokens in user prose) is intentional — option
+labels are exactly where these noun forms cluster, while user messages
+typically use phrasal stop signals.
 
 #### Indirect end-option markers (Korean)
 
@@ -131,7 +149,10 @@ Advisory response (exit 0 + stderr message only — no JSON output):
 bash hooks/test-block-ask-end-option.sh
 ```
 
-Covers: direct Korean/English end markers (block + advisory modes), indirect
+Covers: direct Korean/English end markers (block + advisory modes),
+heading-separator KO end-tokens in option labels (issue #236 — `종료 —`,
+`그만 —`, `마무리:`, etc.) including inflected-noun false-positive regression
+(`종료된 이슈 목록`, `회의 마무리 방식 검토`, `종료 시각 기준`), indirect
 English phrasing (take a break, prioritize other work, pause for now, resume in
 a later session, other work first), indirect Korean phrasing (잠시 멈춰, 잠시
 보류, 휴식, 다른 작업 우선, 다음 세션), 4-option padding pattern (4th

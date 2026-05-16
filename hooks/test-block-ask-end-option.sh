@@ -424,6 +424,63 @@ P_4p3=$(build_payload "$T_4p3" '["리뷰", "구현", "테스트", "다음 세션
 run_case "[4-pad] 4-option set, 4th only is '다음 세션' → block" block default "$P_4p3"
 
 # ---------------------------------------------------------------------------
+# (n-pre) Heading-separator KO end-tokens in option labels (issue #236)
+# ---------------------------------------------------------------------------
+#
+# Before #236, END_OPTION_MARKERS_KO required full phrased forms ("여기서 종료",
+# "세션 종료"). A label of shape "종료 — context" fell through _has_end_marker
+# because no phrased substring matched. PR #241 review rejected the
+# bare-token approach (false-blocks "종료된 이슈 목록" / "회의 마무리 방식
+# 검토"); instead we list the heading-separator patterns explicitly:
+# "{token} —" / "{token} -" / "{token}:" — these require a separator, so
+# they catch the issue-#236 trigger without colliding with inflected nouns.
+
+T_sep1=$(build_transcript "다음 단계 진행해주세요")
+P_sep1=$(build_payload "$T_sep1" '["Plan A", "Plan B", "종료 — 여기서 끊자"]')
+run_case "[#236] '종료 —' separator label → block" block default "$P_sep1"
+
+T_sep2=$(build_transcript "계속 작업해주세요")
+P_sep2=$(build_payload "$T_sep2" '["Option 1", "Option 2", "그만 — 다음에 이어서"]')
+run_case "[#236] '그만 —' separator label → block" block default "$P_sep2"
+
+T_sep3=$(build_transcript "다음 작업 알려주세요")
+P_sep3=$(build_payload "$T_sep3" '["Plan A", "Plan B", "마무리 — 정리하고 종료"]')
+run_case "[#236] '마무리 —' separator label → block" block default "$P_sep3"
+
+T_sep4=$(build_transcript "다음 단계는?")
+P_sep4=$(build_payload "$T_sep4" '["Plan A", "종료: 세션 닫기"]')
+run_case "[#236] '종료:' colon-separator label → block" block default "$P_sep4"
+
+T_sep5=$(build_transcript "다음 작업 알려주세요")
+P_sep5=$(build_payload "$T_sep5" '["Plan A", "Plan B", "마무리: 회고 작성"]')
+run_case "[#236] '마무리:' colon-separator label → block" block default "$P_sep5"
+
+T_sep6=$(build_transcript "계속 진행해주세요")
+P_sep6=$(build_payload "$T_sep6" '["Plan A", "그만 - 휴식 필요"]')
+run_case "[#236] '그만 -' hyphen-separator label → block" block default "$P_sep6"
+
+# Separator marker + stop signal in user message → pass (signal short-circuits).
+T_sep7=$(build_transcript "그만하자")
+P_sep7=$(build_payload "$T_sep7" '["Plan A", "종료 — 여기서 끊자"]')
+run_case "[#236] '종료 —' label + stop signal → pass" pass default "$P_sep7"
+
+# False-positive regression: PR #241 review surfaced inflected-noun forms
+# that bare-token matching would have wrongly blocked. Verify the
+# phrased-separator approach lets these through.
+
+T_fp_inf1=$(build_transcript "이번 분기 완료된 작업 보여주세요")
+P_fp_inf1=$(build_payload "$T_fp_inf1" '["종료된 이슈 목록", "진행 중 이슈", "신규 이슈"]')
+run_case "[#236-fp] '종료된 이슈 목록' (inflected) → pass" pass default "$P_fp_inf1"
+
+T_fp_inf2=$(build_transcript "회의 운영 개선안 알려주세요")
+P_fp_inf2=$(build_payload "$T_fp_inf2" '["회의 마무리 방식 검토", "어젠다 정리", "회고 도입"]')
+run_case "[#236-fp] '회의 마무리 방식 검토' (compound) → pass" pass default "$P_fp_inf2"
+
+T_fp_inf3=$(build_transcript "이슈 정렬 기준 알려주세요")
+P_fp_inf3=$(build_payload "$T_fp_inf3" '["종료 시각 기준", "생성 시각 기준", "우선순위 기준"]')
+run_case "[#236-fp] '종료 시각 기준' (inflected noun) → pass" pass default "$P_fp_inf3"
+
+# ---------------------------------------------------------------------------
 # (n) False positive avoidance — legitimate work options must NOT be blocked
 # ---------------------------------------------------------------------------
 
