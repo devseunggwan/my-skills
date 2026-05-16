@@ -11,6 +11,15 @@ Development workflow skills for Claude Code — disciplined, fast, resilient.
 | Skill | Description |
 |-------|-------------|
 | `retrospect` | Session retrospect — scan conversation against CLAUDE.md, find friction root causes, propose and execute improvements |
+| `codex-review-wrap` | Worktree-aware wrapper for `/codex:review`; forces explicit target selection, premise-verification gate, and flip detection across review rounds |
+
+### Discipline
+
+| Skill | Description |
+|-------|-------------|
+| `strike` | Declare a rule violation — session-scoped counter, escalating signal (1진 warning → 2진 review → 3진 Stop-hook block) |
+| `strikes` | Show current strike count + recorded violation reasons for the active session |
+| `reset-strikes` | Reset the session strike counter to 0 after a 3진 block (required to unblock responses) |
 
 ### Session Management
 
@@ -20,7 +29,20 @@ Development workflow skills for Claude Code — disciplined, fast, resilient.
 | `cmux-recover-sessions` | Bulk recover Claude Code sessions after crash or power loss (cmux backend) |
 | `cmux-save-sessions` | Save cmux session list as a JSON snapshot for later restore |
 | `cmux-resume-sessions` | Restore cmux workspaces from a saved JSON snapshot |
-| `cmux-session-manager` | cmux session lifecycle automation — status, cleanup, init, report |
+| `cmux-session-manager` | Daily session lifecycle — status dashboard, cleanup, reorganize |
+| `cmux-delegate` | Delegate a task to an independent session with auto-collected context (supports multi-provider routing) |
+| `cmux-browser` | Browser automation E2E testing via `cmux browser` CLI — SPA hydration wait included |
+
+## Hooks
+
+Praxis ships a set of PreToolUse / PostToolUse / Stop / UserPromptSubmit hooks
+that structurally enforce rules captured in CLAUDE.md (e.g. side-effect
+acknowledgment, completion-evidence requirement, protected-branch edit guard,
+manufactured action-menu detection). Hooks fail-open on infrastructure errors
+and never break Claude Code — they only nudge or block specific patterns.
+
+See [AGENTS.md → Hooks](AGENTS.md#hooks) for the full index and per-hook
+spec links under [`docs/hook/`](docs/hook/).
 
 ## Prerequisites
 
@@ -28,19 +50,34 @@ Most skills delegate to external agents or session managers. Install the depende
 
 | Dependency | Required for | Install |
 |------------|-------------|---------|
+| **gh CLI** | Standalone (`recover-sessions`), strike skills, PR/issue ops | `brew install gh` |
+| **jq** | Strike skills (session-scoped counter parsing) | `brew install jq` |
 | **oh-my-claudecode** | Agent delegation (tracer, analyst, ultraqa, code-reviewer) | `omc install` |
 | **cmux** | Session management skills (cmux-*) | `npm i -g @anthropic/cmux` |
-| **gh CLI** | Issue/PR operations referenced from skills | `brew install gh` |
+| **codex-cli, gemini-cli** | Multi-provider routing in `cmux-delegate` | per upstream docs |
 
 ### Compatibility Tiers
 
 | Tier | What works | What you need |
 |------|-----------|---------------|
-| **Standalone** | recover-sessions | `gh` CLI only |
-| **Enhanced** | + retrospect | + oh-my-claudecode |
+| **Standalone** | recover-sessions, strike / strikes / reset-strikes | `gh` CLI, `jq` |
+| **Enhanced** | + retrospect, codex-review-wrap | + oh-my-claudecode |
 | **Full** | + all cmux-* skills | + cmux |
+| **Multi-provider** | + codex/gemini routing in cmux-delegate | + codex-cli, gemini-cli |
 
 > Skills in higher tiers fall back to manual/built-in alternatives when their dependencies are missing, but with reduced functionality.
+
+## Provider Routing
+
+Skills that dispatch external CLI workers (`cmux-delegate`) can route tasks
+to multiple AI providers via a unified `--model` flag using
+`<provider>:<model>` notation (e.g. `claude:opus`, `codex:o3`,
+`gemini:flash`). Bare names (`opus`, `sonnet`, `haiku`) always resolve to
+Claude — full backward compatibility. When only `claude` is installed,
+the system behaves exactly as before — no errors, no degradation.
+
+See [AGENTS.md → Provider Routing](AGENTS.md#provider-routing) for the full
+task-type / complexity routing matrix and fallback policy.
 
 ## Installation
 
@@ -105,6 +142,24 @@ Generated artifacts are committed:
 To add a new platform, drop a `manifests/platforms/<name>.json` file listing
 its outputs and run the build script — no changes to skills, hooks, or
 existing platforms required.
+
+## Local Development
+
+This repository should live at **`~/projects/praxis`**. CLI tools shipped by
+skills (e.g. `cmux-recover-sessions`, `claude-recover`, `cmux-save-sessions`,
+`cmux-browser`) are symlinked from `~/.local/bin` into this clone, so patches
+you commit here land in the version that actually runs at the shell.
+
+```bash
+# Install / refresh CLI symlinks (idempotent)
+./scripts/install.sh
+
+# Verify symlinks point at this clone (CI / SessionStart hook)
+./scripts/verify-symlinks.sh
+```
+
+See [AGENTS.md → Local Development](AGENTS.md#local-development) for the full
+list of shipped CLI wrappers and drift-recovery rationale.
 
 ## License
 
