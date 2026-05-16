@@ -12,8 +12,8 @@ description: >
   Triggers on "codex review", "review codex", "safe review", "/codex-review-wrap",
   "premise verification", "flip detection", "sibling defect", "sibling cross-check".
 verified-against-runtime: true
-runtime-verified-at: 2026-05-16
-runtime-verified-note: "codex-companion 1.0.4 — ARGUMENTS rejected for non-flag string; AskUserQuestion maxItems:4 blocks worktree list >3 items; Skill() cannot delegate to disable-model-invocation skill (Step 4 now leads with hard MUST NOT directive — issue #237)"
+runtime-verified-at: 2026-05-13
+runtime-verified-note: "codex-companion 1.0.4 — ARGUMENTS rejected for non-flag string; AskUserQuestion maxItems:4 blocks worktree list >3 items; Skill() cannot delegate to disable-model-invocation skill. Step 4 hardened to a MUST NOT directive in issue #237 (2026-05-16) — directive-only change, no new runtime claim."
 ---
 
 # codex-review-wrap

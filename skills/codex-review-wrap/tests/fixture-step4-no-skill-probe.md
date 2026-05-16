@@ -60,8 +60,12 @@ The only `Skill(...)` call legitimately reachable from Step 4 is the
 
 In that case, `AskUserQuestion` surfaces `oh-my-claudecode:code-reviewer`
 / `Manual` / `Cancel`. If the user picks `oh-my-claudecode:code-reviewer`,
-`Skill("oh-my-claudecode:code-reviewer")` is invoked — that skill does
-not declare `disable-model-invocation`, so the Skill tool succeeds.
+`Skill("oh-my-claudecode:code-reviewer")` is invoked. This carveout
+assumes the target skill does not also declare `disable-model-invocation`
+— verify against the installed version's frontmatter before relying on
+it. If that assumption proves false, the user can re-select `Manual` or
+`Cancel` from the same `AskUserQuestion` surface; no second probe is
+needed.
 
 ## Validation checklist
 
